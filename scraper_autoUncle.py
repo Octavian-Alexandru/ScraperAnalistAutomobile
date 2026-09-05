@@ -120,7 +120,7 @@ def scrape_year(year: int) -> pd.DataFrame:
 
         for attempt in range(max_retries):
             try:
-                response = session.get(url, headers=headers, timeout=15)
+                response = session.get(url, headers=headers, timeout=(10, 20))
 
                 # Tratăm blocajul de trafic (Rate Limit)
                 if response.status_code == 429:
