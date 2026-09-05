@@ -2,8 +2,8 @@ name: Daily Car Scraper
 
 on:
   schedule:
-    - cron: '0 3 * * *' # Rulează în fiecare noapte la ora 03:00 (ora serverului)
-  workflow_dispatch: # Îți permite să declanșezi rularea și manual din interfața GitHub
+    - cron: '0 17 * * *' # Rulează la 05:00 UTC (care înseamnă 08:00 în România)
+  workflow_dispatch: # Păstrează asta ca să poți da și manual "Run workflow"
 
 jobs:
   scrape-data:
