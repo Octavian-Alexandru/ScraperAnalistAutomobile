@@ -30,8 +30,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests pandas beautifulsoup4 openpyxl
 
-      # 4. Rulează scriptul tău (aici pui doar scraperul fără browser)
+      # 4. Rulează scriptul tău
       - name: Run AutoUncle Scraper
+        env:
+          PYTHONUNBUFFERED: "1"
         run: python scraper_autoUncle.py
 
       # 5. Salvează fișierul Excel înapoi în GitHub
@@ -39,8 +41,6 @@ jobs:
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action Bot"
-          # Adaugăm noul fișier Excel
           git add data/raw_listings_old.xlsx
-          # Facem commit doar dacă există modificări
           git commit -m "🤖 Actualizare zilnică bază de date mașini" || echo "No changes to commit"
           git push
