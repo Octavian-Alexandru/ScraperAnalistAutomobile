@@ -1,0 +1,477 @@
+import pandas as pd
+import numpy as np
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.metrics import mean_absolute_error
+import requests
+from textblob import TextBlob
+import warnings
+
+warnings.filterwarnings('ignore')
+
+
+class AdvancedCarProfitabilityAnalyzer:
+    def __init__(self):
+        # Inițializare modele și encodere
+        self.price_model = None
+        self.maintenance_model = None
+        self.encoders = {}
+        self.scaler = StandardScaler()
+        self.feature_columns = []
+
+        # Baza de date cu costurile reale cu piese și manoperă
+        self.maintenance_costs_db = {
+            'volkswagen': {
+                'revizie': {'piese': 300, 'manoperă': 200},
+                'ambreiaj': {'piese': 800, 'manoperă': 500},
+                'distributie': {'piese': 600, 'manoperă': 400},
+                'frane': {'piese': 400, 'manoperă': 300},
+                'suspensie': {'piese': 800, 'manoperă': 600},
+            },
+            'bmw': {
+                'revizie': {'piese': 500, 'manoperă': 300},
+                'ambreiaj': {'piese': 1200, 'manoperă': 800},
+                'distributie': {'piese': 900, 'manoperă': 600},
+                'frane': {'piese': 600, 'manoperă': 400},
+                'suspensie': {'piese': 1200, 'manoperă': 800},
+            },
+            'audi': {
+                'revizie': {'piese': 450, 'manoperă': 250},
+                'ambreiaj': {'piese': 1000, 'manoperă': 600},
+                'distributie': {'piese': 800, 'manoperă': 500},
+                'frane': {'piese': 500, 'manoperă': 350},
+                'suspensie': {'piese': 1000, 'manoperă': 700},
+            },
+            'opel': {
+                'revizie': {'piese': 250, 'manoperă': 150},
+                'ambreiaj': {'piese': 600, 'manoperă': 400},
+                'distributie': {'piese': 400, 'manoperă': 300},
+                'frane': {'piese': 300, 'manoperă': 200},
+                'suspensie': {'piese': 600, 'manoperă': 400},
+            },
+            'ford': {
+                'revizie': {'piese': 280, 'manoperă': 180},
+                'ambreiaj': {'piese': 700, 'manoperă': 450},
+                'distributie': {'piese': 450, 'manoperă': 320},
+                'frane': {'piese': 320, 'manoperă': 220},
+                'suspensie': {'piese': 650, 'manoperă': 420},
+            },
+            'renault': {
+                'revizie': {'piese': 270, 'manoperă': 170},
+                'ambreiaj': {'piese': 650, 'manoperă': 420},
+                'distributie': {'piese': 420, 'manoperă': 290},
+                'frane': {'piese': 310, 'manoperă': 210},
+                'suspensie': {'piese': 620, 'manoperă': 410},
+            },
+            'dacia': {
+                'revizie': {'piese': 200, 'manoperă': 120},
+                'ambreiaj': {'piese': 500, 'manoperă': 350},
+                'distributie': {'piese': 350, 'manoperă': 250},
+                'frane': {'piese': 250, 'manoperă': 180},
+                'suspensie': {'piese': 500, 'manoperă': 350},
+            },
+            'skoda': {
+                'revizie': {'piese': 290, 'manoperă': 190},
+                'ambreiaj': {'piese': 750, 'manoperă': 480},
+                'distributie': {'piese': 440, 'manoperă': 310},
+                'frane': {'piese': 330, 'manoperă': 230},
+                'suspensie': {'piese': 670, 'manoperă': 440},
+            },
+            'default': {
+                'revizie': {'piese': 300, 'manoperă': 200},
+                'ambreiaj': {'piese': 800, 'manoperă': 500},
+                'distributie': {'piese': 600, 'manoperă': 400},
+                'frane': {'piese': 400, 'manoperă': 300},
+                'suspensie': {'piese': 800, 'manoperă': 600},
+            }
+        }
+
+        # Date despre cerere și ofertă pe piață
+        self.market_demand = {
+            'volkswagen': 0.8,  # Scor de cerere (0-1)
+            'bmw': 0.7,
+            'audi': 0.75,
+            'opel': 0.6,
+            'ford': 0.65,
+            'renault': 0.55,
+            'dacia': 0.7,
+            'skoda': 0.68,
+            'default': 0.5
+        }
+
+    def load_and_preprocess_data(self, file_path):
+        """Încarcă și prelucrează datele din Excel"""
+        df = pd.read_excel(file_path)
+
+        # Curățare date
+        df = self._clean_data(df)
+
+        # Feature engineering
+        df = self._create_features(df)
+
+        # Analiză sentiment din descriere
+        df['sentiment_score'] = df['description'].apply(self._analyze_sentiment)
+
+        return df
+
+    def _clean_data(self, df):
+        """Curățare și pregătire date"""
+        # Elimină rânduri cu preț lipsă
+        df = df.dropna(subset=['price'])
+
+        # Convertire preț în numeric (elimină caractere non-numerice)
+        df['price'] = df['price'].astype(str).str.replace(r'[^\d.]', '', regex=True)
+        df['price'] = pd.to_numeric(df['price'], errors='coerce')
+        df = df.dropna(subset=['price'])
+
+        # Elimină outlieri (prețuri absurde)
+        Q1 = df['price'].quantile(0.05)
+        Q3 = df['price'].quantile(0.95)
+        IQR = Q3 - Q1
+        df = df[~((df['price'] < (Q1 - 1.5 * IQR)) | (df['price'] > (Q3 + 1.5 * IQR)))]
+
+        return df
+
+    def _create_features(self, df):
+        """Creează feature-uri noi din datele existente"""
+        # Extrage marca din titlu
+        df['brand'] = df['title'].str.split().str[0].str.lower()
+
+        # Vârsta mașinii
+        current_year = pd.Timestamp.now().year
+        df['age'] = current_year - df['year']
+
+        # Preț pe kilometru
+        df['price_per_km'] = df['price'] / (df['mileage_km'].replace(0, 1))  # Evită împărțirea la 0
+
+        # Categorie de kilometraj
+        df['mileage_category'] = pd.cut(df['mileage_km'],
+                                        bins=[0, 50000, 100000, 150000, 200000, float('inf')],
+                                        labels=['foarte_putini', 'putini', 'mediu', 'multi', 'foarte_multi'])
+
+        return df
+
+    def _analyze_sentiment(self, text):
+        """Analizează sentimentul din descrierea mașinii"""
+        if pd.isna(text):
+            return 0.5  # Neutral dacă nu există descriere
+
+        try:
+            analysis = TextBlob(str(text))
+            # Convertim scorul de polaritate (-1 to 1) la (0 to 1)
+            return (analysis.sentiment.polarity + 1) / 2
+        except:
+            return 0.5  # Neutral în caz de eroare
+
+    def get_average_price_from_api(self, brand, model, year):
+        """Obține prețul mediu de piață de la un API extern (exemplu)"""
+        # Aici poți integra cu un API real de prețuri auto
+        # Pentru moment, folosim date simulate
+        try:
+            # Date simulate pentru exemple
+            avg_prices = {
+                'volkswagen': {'golf': {2015: 9000, 2016: 9500, 2017: 10000, 2018: 11000}},
+                'bmw': {'series 3': {2015: 15000, 2016: 16000, 2017: 17000, 2018: 18000}},
+                'audi': {'a4': {2015: 14000, 2016: 15000, 2017: 16000, 2018: 17000}},
+                'opel': {'astra': {2015: 7000, 2016: 7500, 2017: 8000, 2018: 8500}},
+                'ford': {'focus': {2015: 8000, 2016: 8500, 2017: 9000, 2018: 9500}},
+                'renault': {'megane': {2015: 6500, 2016: 7000, 2017: 7500, 2018: 8000}},
+                'dacia': {'logan': {2015: 5000, 2016: 5500, 2017: 6000, 2018: 6500}},
+                'skoda': {'octavia': {2015: 8500, 2016: 9000, 2017: 9500, 2018: 10000}},
+                'default': 10000
+            }
+
+            brand_lower = brand.lower()
+            model_lower = model.lower()
+
+            if (brand_lower in avg_prices and
+                    model_lower in avg_prices[brand_lower] and
+                    year in avg_prices[brand_lower][model_lower]):
+                return avg_prices[brand_lower][model_lower][year]
+            else:
+                # Estimare bazată pe vârstă pentru mărci/model necunoscute
+                base_price = 10000
+                age = pd.Timestamp.now().year - year
+                return base_price * (0.9 ** age)  # Reducere de 10% pe an
+
+        except Exception as e:
+            print(f"Eroare la estimarea prețului: {e}")
+            return None
+
+    def estimate_maintenance_costs(self, brand, mileage, age):
+        """Estimează costurile de întreținere bazate pe baza de date cu costuri reale"""
+        brand_lower = brand.lower()
+
+        if brand_lower not in self.maintenance_costs_db:
+            brand_lower = 'default'
+
+        # Cost de revizie de bază
+        base_service_cost = (self.maintenance_costs_db[brand_lower]['revizie']['piese'] +
+                             self.maintenance_costs_db[brand_lower]['revizie']['manoperă'])
+
+        # Costuri suplimentare bazate pe vârstă și kilometraj
+        age_factor = age * 0.1  # 10% costuri suplimentare pe an
+        mileage_factor = (mileage / 100000) * 0.5  # 50% costuri suplimentare la fiecare 100k km
+
+        # Estimare costuri pentru componente care se uzează
+        additional_costs = 0
+        if mileage > 80000:
+            additional_costs += (self.maintenance_costs_db[brand_lower]['distributie']['piese'] +
+                                 self.maintenance_costs_db[brand_lower]['distributie']['manoperă'])
+
+        if mileage > 100000:
+            additional_costs += (self.maintenance_costs_db[brand_lower]['ambreiaj']['piese'] +
+                                 self.maintenance_costs_db[brand_lower]['ambreiaj']['manoperă']) * 0.7
+
+        if age > 8:
+            additional_costs += (self.maintenance_costs_db[brand_lower]['suspensie']['piese'] +
+                                 self.maintenance_costs_db[brand_lower]['suspensie']['manoperă']) * 0.5
+
+        total_cost = base_service_cost * (1 + age_factor + mileage_factor) + additional_costs
+
+        return total_cost
+
+    def get_market_demand(self, brand):
+        """Obține scorul de cerere pe piață pentru o marcă"""
+        brand_lower = brand.lower()
+        return self.market_demand.get(brand_lower, self.market_demand['default'])
+
+    def train_models(self, df):
+        """Antrenează modelele de predicție"""
+        # Codificare variabile categorice
+        categorical_cols = ['brand', 'location', 'seller_type', 'mileage_category']
+        for col in categorical_cols:
+            if col in df.columns:
+                le = LabelEncoder()
+                df[col] = le.fit_transform(df[col].astype(str))
+                self.encoders[col] = le
+
+        # Selectare features pentru antrenament
+        feature_cols = ['year', 'mileage_km', 'brand', 'age', 'price_per_km',
+                        'location', 'seller_type', 'mileage_category', 'sentiment_score']
+        self.feature_columns = [col for col in feature_cols if col in df.columns]
+
+        # Separă datele pentru antrenament
+        X = df[self.feature_columns]
+        y_price = df['price']
+
+        # Împarte datele
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y_price, test_size=0.2, random_state=42
+        )
+
+        # Scalează features
+        X_train_scaled = self.scaler.fit_transform(X_train)
+        X_test_scaled = self.scaler.transform(X_test)
+
+        # Antrenează modelul de preț
+        self.price_model = RandomForestRegressor(n_estimators=100, random_state=42)
+        self.price_model.fit(X_train_scaled, y_train)
+
+        # Evaluare model
+        y_pred = self.price_model.predict(X_test_scaled)
+        mae = mean_absolute_error(y_test, y_pred)
+        print(f"Precizia modelului de preț: MAE = {mae:.2f}")
+
+        return self
+
+    def predict_profitability(self, car_data):
+        """Predictie rentabilitate pentru o mașină"""
+        if self.price_model is None:
+            raise ValueError("Modelele nu au fost antrenate. Te rog antrenează-le mai întâi.")
+
+        # Pregătește datele pentru predicție
+        car_df = self._prepare_car_data(car_data)
+
+        # Scalează features
+        car_scaled = self.scaler.transform(car_df[self.feature_columns])
+
+        # Prezice prețul de piață
+        predicted_price = self.price_model.predict(car_scaled)[0]
+
+        # Încearcă să obțină prețul mediu de la API
+        brand = car_data['title'].split()[0].lower()
+        model = ' '.join(car_data['title'].split()[1:3]).lower() if len(car_data['title'].split()) > 2 else 'unknown'
+        year = car_data['year']
+
+        api_price = self.get_average_price_from_api(brand, model, year)
+
+        # Folosește prețul de la API dacă este disponibil, altfel folosește predicția
+        if api_price:
+            final_predicted_price = (predicted_price + api_price) / 2  # Media dintre model și API
+            price_source = "combinație model propriu + API extern"
+        else:
+            final_predicted_price = predicted_price
+            price_source = "model propriu"
+
+        # Estimează costurile de întreținere bazate pe costurile reale
+        maintenance_cost = self.estimate_maintenance_costs(
+            brand, car_data['mileage_km'], car_data['age']
+        )
+
+        # Analizează sentimentul din descriere
+        sentiment_score = self._analyze_sentiment(car_data.get('description', ''))
+
+        # Obține scorul de cerere pe piață
+        market_demand_score = self.get_market_demand(brand)
+
+        # Calculează profitabilitatea cu factori de ajustare
+        price_difference = car_data['price'] - final_predicted_price
+        profit_margin = price_difference - maintenance_cost
+
+        # Ajustează profitabilitatea bazată pe sentiment și cererea pieței
+        sentiment_adjustment = 0.1 * (sentiment_score - 0.5)  # ±10% ajustare bazată pe sentiment
+        demand_adjustment = 0.15 * (market_demand_score - 0.5)  # ±15% ajustare bazată pe cerere
+
+        adjusted_profit_margin = profit_margin * (1 + sentiment_adjustment + demand_adjustment)
+        profitability_score = adjusted_profit_margin / final_predicted_price if final_predicted_price > 0 else -1
+
+        # Determină ratingul
+        if profitability_score > 0.25:
+            rating = "Foarte rentabilă"
+        elif profitability_score > 0.15:
+            rating = "Rentabilă"
+        elif profitability_score > 0.05:
+            rating = "Ușor rentabilă"
+        elif profitability_score > -0.05:
+            rating = "Puțin nerentabilă"
+        elif profitability_score > -0.15:
+            rating = "Nerentabilă"
+        else:
+            rating = "Foarte nerentabilă"
+
+        return {
+            'predicted_market_price': round(final_predicted_price, 2),
+            'price_source': price_source,
+            'estimated_maintenance_cost': round(maintenance_cost, 2),
+            'profit_margin': round(profit_margin, 2),
+            'adjusted_profit_margin': round(adjusted_profit_margin, 2),
+            'profitability_score': round(profitability_score, 3),
+            'rating': rating,
+            'sentiment_score': round(sentiment_score, 3),
+            'market_demand_score': round(market_demand_score, 3),
+            'maintenance_breakdown': self.get_maintenance_breakdown(brand, car_data['mileage_km'], car_data['age'])
+        }
+
+    def get_maintenance_breakdown(self, brand, mileage, age):
+        """Returnează o defalcare detaliată a costurilor de întreținere"""
+        brand_lower = brand.lower()
+
+        if brand_lower not in self.maintenance_costs_db:
+            brand_lower = 'default'
+
+        breakdown = {
+            'revizie': self.maintenance_costs_db[brand_lower]['revizie']
+        }
+
+        if mileage > 80000:
+            breakdown['distributie'] = self.maintenance_costs_db[brand_lower]['distributie']
+
+        if mileage > 100000:
+            breakdown['ambreiaj'] = {
+                'piese': self.maintenance_costs_db[brand_lower]['ambreiaj']['piese'] * 0.7,
+                'manoperă': self.maintenance_costs_db[brand_lower]['ambreiaj']['manoperă'] * 0.7
+            }
+
+        if age > 8:
+            breakdown['suspensie'] = {
+                'piese': self.maintenance_costs_db[brand_lower]['suspensie']['piese'] * 0.5,
+                'manoperă': self.maintenance_costs_db[brand_lower]['suspensie']['manoperă'] * 0.5
+            }
+
+        return breakdown
+
+    def _prepare_car_data(self, car_data):
+        """Pregătește datele unei mașini pentru predicție"""
+        # Creează un DataFrame cu datele mașinii
+        car_df = pd.DataFrame([car_data])
+
+        # Aplică același preprocesare ca la antrenament
+        car_df['brand'] = car_df['title'].str.split().str[0].str.lower()
+        current_year = pd.Timestamp.now().year
+        car_df['age'] = current_year - car_df['year']
+        car_df['price_per_km'] = car_df['price'] / (car_df['mileage_km'].replace(0, 1))
+
+        # Categorie kilometraj
+        car_df['mileage_category'] = pd.cut(car_df['mileage_km'],
+                                            bins=[0, 50000, 100000, 150000, 200000, float('inf')],
+                                            labels=['foarte_putini', 'putini', 'mediu', 'multi', 'foarte_multi'])
+
+        # Analiză sentiment
+        car_df['sentiment_score'] = self._analyze_sentiment(car_data.get('description', ''))
+
+        # Codifică variabilele categorice
+        for col, encoder in self.encoders.items():
+            if col in car_df.columns:
+                # Folosește 'unknown' pentru valorile nevăzute la antrenament
+                car_df[col] = car_df[col].apply(lambda x: x if x in encoder.classes_ else 'unknown')
+                # Dacă 'unknown' nu există în encoder, îl adaugă
+                if 'unknown' not in encoder.classes_:
+                    encoder.classes_ = np.append(encoder.classes_, 'unknown')
+                car_df[col] = encoder.transform(car_df[col])
+
+        # Asigură-te că avem toate coloanele necesare
+        for col in self.feature_columns:
+            if col not in car_df.columns:
+                car_df[col] = 0  # sau o valoare implicită adecvată
+
+        return car_df
+
+
+# Exemplu de utilizare
+if __name__ == "__main__":
+    # Inițializează analyzer-ul
+    analyzer = AdvancedCarProfitabilityAnalyzer()
+
+    # Încarcă și prelucrează datele
+    try:
+        df = analyzer.load_and_preprocess_data('date_masini.xlsx')
+        print(f"Date încărcate: {len(df)} mașini")
+
+        # Antrenează modelele
+        analyzer.train_models(df)
+
+        # Exemplu de evaluare a unei mașini
+        sample_car = {
+            'car_id': 'test_123',
+            'title': 'Volkswagen Golf 1.6 TDI',
+            'seller': 'Autohaus',
+            'location': 'Bucuresti',
+            'price': 8500,
+            'currency': 'RON',
+            'description': 'Masina in stare excelenta, intretinuta la reprezentanta, dotari complete, fara accidente',
+            'mileage_km': 125000,
+            'year': 2015,
+            'seller_type': 'profesionist',
+            'url': 'https://www.olx.ro/oferta/volkswagen-golf-IDabc123.html',
+            'scrape_date': '2023-10-15'
+        }
+
+        # Adaugă vârsta mașinii pentru a evita eroarea
+        current_year = pd.Timestamp.now().year
+        sample_car['age'] = current_year - sample_car['year']
+
+        # Obține evaluarea rentabilității
+        evaluation = analyzer.predict_profitability(sample_car)
+
+        print("\n=== EVALUARE RENTABILITATE ===")
+        print(f"Preț cerut: {sample_car['price']} RON")
+        print(f"Preț estimat de piață: {evaluation['predicted_market_price']} RON ({evaluation['price_source']})")
+        print(f"Cost estimat întreținere: {evaluation['estimated_maintenance_cost']} RON")
+        print(f"Marjă de profit: {evaluation['profit_margin']} RON")
+        print(f"Marjă de profit ajustată: {evaluation['adjusted_profit_margin']} RON")
+        print(f"Scor rentabilitate: {evaluation['profitability_score']}")
+        print(f"Rating: {evaluation['rating']}")
+        print(f"Scor sentiment: {evaluation['sentiment_score']}")
+        print(f"Scor cerere piață: {evaluation['market_demand_score']}")
+
+        print("\n=== DETALII COSTURI ÎNTREȚINERE ===")
+        for component, costs in evaluation['maintenance_breakdown'].items():
+            print(f"{component.capitalize()}: {costs['piese']} RON (piese) + {costs['manoperă']} RON (manoperă)")
+
+    except Exception as e:
+        print(f"Eroare: {e}")
+        import traceback
+
+        traceback.print_exc()

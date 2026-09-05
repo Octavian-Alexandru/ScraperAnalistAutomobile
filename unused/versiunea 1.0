@@ -1,0 +1,182 @@
+# scraper_olx.py
+import time
+import random
+import re
+import hashlib
+import os
+from datetime import datetime, timezone
+from typing import List, Dict, Any
+import pandas as pd
+from bs4 import BeautifulSoup
+from playwright.sync_api import sync_playwright
+
+# --- Config ---
+BASE_URL = "https://www.olx.ro/auto-masini-moto-ambarcatiuni/?currency=EUR&search%5Bfilter_float_price:to%5D=7000"
+PAGES_TO_SCRAPE = 1
+OUTPUT_DIR = "data"
+RAW_XLSX = os.path.join(OUTPUT_DIR, "raw_listings.xlsx")
+MIN_DELAY = 0.4
+MAX_DELAY = 1.2
+
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_4) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.4 Safari/605.1.15",
+]
+
+# Regex helpers
+RE_PRICE = re.compile(r'([\d\.\s,]+)\s*(RON|EUR|€|lei|eur)?', re.I)
+RE_KM = re.compile(r'([\d\.\s,]+)\s*km', re.I)
+RE_YEAR = re.compile(r'\b(19[5-9]\d|20[0-2]\d|2025)\b')
+
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+# --- Utilities ---
+def rand_sleep():
+    time.sleep(random.uniform(MIN_DELAY, MAX_DELAY))
+
+def normalize_number(s: str):
+    if s is None:
+        return None
+    s2 = re.sub(r'[^\d,\.]', '', s)
+    s2 = s2.replace('.', '').replace(' ', '').replace(',', '')
+    return int(s2) if s2 != '' else None
+
+def hash_listing(l: Dict[str, Any]):
+    key = f"{l.get('title','')}_{l.get('price','')}_{l.get('year','')}_{l.get('mileage_km','')}"
+    return hashlib.sha256(key.encode('utf-8')).hexdigest()
+
+def extract_text_or_none(soup_element):
+    return soup_element.get_text(strip=True) if soup_element else None
+
+# --- Parsers ---
+def parse_listing_detail(html: str, url: str) -> Dict[str, Any]:
+    soup = BeautifulSoup(html, "html.parser")
+    data = {}
+
+    # title
+    h1 = soup.find("h1")
+    title = h1.get_text(strip=True) if h1 else None
+    if not title:
+        og_title = soup.find("meta", property="og:title")
+        title = og_title.get("content") if og_title else None
+    data['title'] = title
+
+    # price
+    price = None
+    currency = None
+    possible = soup.select('[class*="price"], [id*="price"]')
+    for p in possible:
+        m = RE_PRICE.search(p.get_text(" ", strip=True))
+        if m:
+            price = normalize_number(m.group(1))
+            curr = m.group(2)
+            if curr:
+                currency = curr.replace('lei','RON').replace('eur','EUR').replace('€','EUR').upper()
+            break
+    data['price'] = price
+    data['currency'] = currency or 'RON'
+
+    # text page
+    page_text = soup.get_text(" ", strip=True)
+
+    # mileage
+    m_km = RE_KM.search(page_text)
+    data['mileage_km'] = normalize_number(m_km.group(1)) if m_km else None
+
+    # year
+    m_year = RE_YEAR.search(page_text)
+    data['year'] = int(m_year.group(1)) if m_year else None
+
+    # location
+    loc_el = soup.find(attrs={"data-cy": "ad-location"}) or soup.select_one(".css-1bmvz3v") or soup.select_one(".show-map-link")
+    location = extract_text_or_none(loc_el)
+    if not location:
+        loc_matches = re.findall(r'[A-ZĂÂÎȘȚ][a-zăâîșț]+(?:\s?[A-ZĂÂÎȘȚ][a-zăâîșț]+)*', page_text)
+        location = loc_matches[0] if loc_matches else None
+    data['location'] = location
+
+    # seller_type
+    seller_type = None
+    seller_el = soup.select_one('[data-testid*="ad-seller"]') or soup.select_one(".seller-description")
+    seller_text = seller_el.get_text(" ", strip=True) if seller_el else None
+    if seller_text:
+        if re.search(r'\b(companie|firmă|dealer|firma|firme)\b', seller_text, re.I):
+            seller_type = "dealer"
+        else:
+            seller_type = "private"
+    data['seller_type'] = seller_type or "private"
+
+    data['url'] = url
+    data['scrape_date'] = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    return data
+
+# --- Main scraping flow ---
+def scrape_olx(pages: int = PAGES_TO_SCRAPE):
+    results = []
+    visited_urls = set()
+    with sync_playwright() as p:
+        browser = p.firefox.launch(headless=True)
+        context = browser.new_context(user_agent=random.choice(USER_AGENTS))
+        page = context.new_page()
+
+        for pg in range(1, pages + 1):
+            page_url = f"{BASE_URL}?page={pg}"
+            print(f"[+] Loading listing page: {page_url}")
+            try:
+                page.goto(page_url, timeout=30000)
+                # scroll puțin pentru încărcare lazy
+                page.evaluate("window.scrollTo(0, document.body.scrollHeight);")
+                page.wait_for_selector('a[href*="/d/oferta/"]', timeout=20000, state="attached")
+                rand_sleep()
+
+                anchors = page.query_selector_all('a[href*="/d/oferta/"]')
+                links = []
+                for a in anchors:
+                    href = a.get_attribute("href")
+                    if href and href.startswith("/"):
+                        href = "https://www.olx.ro" + href
+                    if href:
+                        links.append(href)
+                links = list(set(links))
+                print(f"  -> Found {len(links)} candidate links on page {pg}")
+
+            except Exception as e:
+                print(f"[!] Error loading {page_url}: {e}. Skipping.")
+                continue
+
+            for link in links:
+                if link in visited_urls:
+                    continue
+                try:
+                    print(f"    - Visiting {link}")
+                    page.goto(link, timeout=30000)
+                    rand_sleep()
+                    l_html = page.content()
+                    data = parse_listing_detail(l_html, link)
+                    results.append(data)
+                    visited_urls.add(link)
+                except Exception as e:
+                    print(f"      ! error parsing {link}: {e}")
+                    continue
+            time.sleep(random.uniform(1.0, 2.0))
+
+        browser.close()
+
+    # deduplicate exact
+    unique = {}
+    for r in results:
+        h = hash_listing(r)
+        if h not in unique:
+            unique[h] = r
+    deduped = list(unique.values())
+    print(f"[+] Collected {len(results)} raw entries, deduped to {len(deduped)}.")
+
+    df = pd.DataFrame(deduped)
+    df.to_excel(RAW_XLSX, index=False)
+    print(f"[+] Saved raw listings to {RAW_XLSX}")
+    return df
+
+if __name__ == "__main__":
+    df = scrape_olx()
+    print(df.head(10).to_string(index=False))

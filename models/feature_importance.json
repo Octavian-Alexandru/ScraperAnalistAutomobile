@@ -1,0 +1,38 @@
+[
+  {
+    "feature": "brand",
+    "importance": 0.20942740511915267
+  },
+  {
+    "feature": "price_per_km",
+    "importance": 0.16071822594880844
+  },
+  {
+    "feature": "year",
+    "importance": 0.14312113857016773
+  },
+  {
+    "feature": "mileage_km",
+    "importance": 0.134736319505737
+  },
+  {
+    "feature": "seller_type",
+    "importance": 0.10850617828773164
+  },
+  {
+    "feature": "age",
+    "importance": 0.106051412180053
+  },
+  {
+    "feature": "location",
+    "importance": 0.08359995586937335
+  },
+  {
+    "feature": "mileage_category",
+    "importance": 0.05383936451897617
+  },
+  {
+    "feature": "sentiment_score",
+    "importance": 0.0
+  }
+]

@@ -1,0 +1,35 @@
+{
+  "predicted_market_price": 5555.5,
+  "price_source": "combinație (model + scraping)",
+  "estimated_maintenance_cost": 3741.63,
+  "profit_margin": -797.13,
+  "adjusted_profit_margin": -836.99,
+  "profitability_score": -0.151,
+  "rating": "Foarte nerentabilă",
+  "sentiment_score": 0.55,
+  "market_demand_score": 0.8,
+  "confidence_score": 0.6,
+  "maintenance_breakdown": {
+    "revizie": {
+      "piese": 298.43,
+      "manopera": 89.53
+    },
+    "distributie": {
+      "piese": 622.44,
+      "manopera": 186.73
+    },
+    "ambreiaj": {
+      "piese": 864.65,
+      "manopera": 259.39
+    },
+    "frane": {
+      "piese": 338.96,
+      "manopera": 101.69
+    },
+    "suspensie": {
+      "piese": 791.33,
+      "manopera": 237.4
+    }
+  },
+  "calculated_at": "2025-09-12T16:55:28.901175+00:00Z"
+}
