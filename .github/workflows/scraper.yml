@@ -2,23 +2,29 @@ name: Daily Car Market Pipeline
 
 on:
   schedule:
-    # 1. Rulare Nocturna Adanca (ora 02:00 UTC): scaneaza tot, sincronizeaza DB si re-antreneaza ML
+    # 1. Jobul de zi (Arbitraj Rapid): orele 08:00, 12:00, 16:00, 20:00 UTC
+    - cron: '0 8,12,16,20 * * *'
+    # 2. Jobul de noapte (Mentenanță și Deep Scrape): ora 02:00 UTC
     - cron: '0 2 * * *'
-    # 2. Rulari de Arbitraj de Peste Zi (orele 08:00, 14:00, 18:00 UTC): prind instant anunturile noi si caderile de pret
-    - cron: '0 8,14,18 * * *'
   workflow_dispatch:
     inputs:
+      job_type:
+        description: 'Tipul rularii: day_fast (Arbitraj Rapid) sau night_full (Mentenanta & Deep Scrape)'
+        required: true
+        default: 'day_fast'
+        type: choice
+        options:
+          - day_fast
+          - night_full
       pages:
-        description: 'Numar maxim de pagini per scraper'
+        description: 'Numar pagini per scraper (optional override)'
         required: false
-        default: '25'
-      skip_ml:
-        description: 'Sari peste antrenarea ML (pentru scanare rapida de preturi)'
-        type: boolean
-        default: false
+        default: ''
 
 jobs:
-  run-pipeline:
+  day-arbitrage:
+    name: ⚡ Arbitraj Rapid (Job de Zi)
+    if: github.event.schedule == '0 8,12,16,20 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.job_type == 'day_fast')
     runs-on: ubuntu-latest
 
     permissions:
@@ -36,33 +42,79 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
-      # 3. Instalare librarii necesare
+      # 3. Instalare dependinte
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install requests pandas beautifulsoup4 openpyxl pyarrow scikit-learn joblib playwright
           playwright install --with-deps chromium
 
-      # 4. Rulare Pipeline (Sortare Newest + Early Stopping + SQLite + Parquet + ML)
-      - name: Run Daily Pipeline
+      # 4. Rulare Pipeline Arbitraj Rapid (implicit 5 pagini cu Early Stopping activ)
+      - name: Run Fast Arbitrage Pipeline
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          PAGES="${{ github.event.inputs.pages || '25' }}"
-          EXTRA_FLAGS=""
-          if [ "${{ github.event.inputs.skip_ml }}" = "true" ]; then
-            EXTRA_FLAGS="--skip-ml"
-          fi
-          python run_daily_pipeline.py --pages $PAGES --all-scrapers $EXTRA_FLAGS
+          PAGES="${{ github.event.inputs.pages || '5' }}"
+          python run_daily_pipeline.py --pages $PAGES
 
-
-      # 5. Commit si Push actualizari automate
-      - name: Commit and Push Updated Database & ML Models
+      # 5. Commit si Push baza de date actualizata si parquet
+      - name: Commit and Push Database & Parquet
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action Bot"
+          git pull --rebase origin main || true
+          git add data/cars.db data/ml_ready_listings.parquet
+          git commit -m "⚡ [Arbitraj Rapid] Actualizare anunturi noi si alerte piata" || echo "No changes to commit"
+          git push
+
+  night-maintenance:
+    name: 🌙 Mentenanta si Deep Scrape (Job de Noapte)
+    if: github.event.schedule == '0 2 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.job_type == 'night_full')
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      # 1. Checkout repository
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Setup Python 3.11
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      # 3. Instalare dependinte
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests pandas beautifulsoup4 openpyxl pyarrow scikit-learn joblib playwright
+          playwright install --with-deps chromium
+
+      # 4. Rulare Pipeline Complet (Full Deep Scrape fara Early Stopping + Retrain ML)
+      - name: Run Full Night Pipeline
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          PAGES_ARG=""
+          if [ -n "${{ github.event.inputs.pages }}" ]; then
+            PAGES_ARG="--pages ${{ github.event.inputs.pages }}"
+          fi
+          python run_daily_pipeline.py --full $PAGES_ARG
+
+      # 5. Commit si Push baza de date, parquet si modelul ML re-antrenat
+      - name: Commit and Push Database, Parquet & ML Model
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action Bot"
+          git pull --rebase origin main || true
           git add data/cars.db data/ml_ready_listings.parquet models/price_model.joblib
-          git commit -m "🤖 [Pipeline Auto] Actualizare zilnica date, preturi si model ML" || echo "No changes to commit"
+          git commit -m "🌙 [Deep Scrape & ML] Sincronizare piata, curatare inactive si re-antrenare model ML" || echo "No changes to commit"
           git push

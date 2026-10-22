@@ -118,7 +118,7 @@ def scrape_bestauto_daily(max_pages: int = MAX_PAGES_DEFAULT_DAILY, early_stoppi
                    else route.continue_())
 
         for page_num in range(1, max_pages + 1):
-            url = f"https://www.bestauto.ro/auto/?currency=eur&maxprice=35000&damagedcar=neavariata&page={page_num}"
+            url = f"https://www.bestauto.ro/auto/?currency=eur&maxprice=35000&damagedcar=neavariata&order=date&page={page_num}"
             print(f"    [BestAuto Daily] Pagina {page_num}/{max_pages} (Cele mai noi)...")
 
             page_success = False
@@ -176,9 +176,9 @@ def scrape_bestauto(daily_mode: bool = True, max_pages: int = MAX_PAGES_DEFAULT_
     start_time = time.time()
 
     if daily_mode:
-        results = scrape_bestauto_daily(max_pages=max_pages)
+        results = scrape_bestauto_daily(max_pages=max_pages, early_stopping=True)
     else:
-        results = []
+        results = scrape_bestauto_daily(max_pages=max_pages, early_stopping=False)
 
     df = pd.DataFrame(results)
     if not df.empty:

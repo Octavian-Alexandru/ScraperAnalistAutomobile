@@ -22,35 +22,68 @@ FEATURES = ['Brand', 'Model', 'Trim', 'year', 'mileage_km', 'fuel_type', 'engine
 
 @st.cache_data
 def load_and_prepare_data():
-    """Incarca rapid dataset-ul pregatit (Parquet <0.1s, fallback Excel)."""
+    """
+    Optimizat pentru Streamlit Community Cloud:
+    Prioritizeaza citirea rapida a fisierului Parquet (<0.1s), cu fallback la Excel sau SQLite (doar citire).
+    """
+    df = None
     if os.path.exists(PARQUET_FILE):
-        df = pd.read_parquet(PARQUET_FILE)
-    elif os.path.exists(EXCEL_FILE):
-        df = pd.read_excel(EXCEL_FILE)
-    else:
-        st.error("Nu s-a gasit dataset-ul pregatit. Ruleaza mai intai 'python main.py' sau 'python run_daily_pipeline.py'.")
+        try:
+            df = pd.read_parquet(PARQUET_FILE)
+        except Exception as e:
+            st.warning(f"A aparut o problema la citirea fisierului Parquet: {e}")
+
+    if df is None or df.empty:
+        if os.path.exists(EXCEL_FILE):
+            try:
+                df = pd.read_excel(EXCEL_FILE)
+            except Exception:
+                pass
+
+    if df is None or df.empty:
+        # Fallback de citire directa din SQLite fara scriere
+        if os.path.exists(DB_PATH):
+            try:
+                from db_helper import get_active_listings_df
+                df = get_active_listings_df()
+                if not df.empty and 'price' not in df.columns and 'price_eur' in df.columns:
+                    df['price'] = df['price_eur']
+            except Exception:
+                pass
+
+    if df is None or df.empty:
+        st.error(
+            "⚠️ Nu s-a găsit dataset-ul pregătit (ml_ready_listings.parquet). "
+            "Așteaptă rularea automată a pipeline-ului din GitHub Actions sau rulează 'python run_daily_pipeline.py'."
+        )
         st.stop()
 
     if 'Trim' not in df.columns:
         df['Trim'] = 'Standard'
     df['Trim'] = df['Trim'].fillna('Standard')
 
+    if 'price' not in df.columns and 'price_eur' in df.columns:
+        df['price'] = df['price_eur']
+
     required_cols = ['Brand', 'Model', 'Trim', 'year', 'mileage_km', 'fuel_type', 'engine_size', 'price']
-    df = df.dropna(subset=required_cols)
+    df = df.dropna(subset=[c for c in required_cols if c in df.columns])
     return df.reset_index(drop=True)
 
 
 @st.cache_resource
 def load_trained_model(dataframe):
-    """Incarca modelul pre-antrenat de pe disc (0.05s). Daca lipseste, il antreneaza ca fallback."""
+    """
+    Incarca modelul pre-antrenat de pe disc (joblib generat de GitHub Actions).
+    Previne consumul de CPU pe Streamlit Cloud.
+    """
     if os.path.exists(MODEL_FILE):
         try:
             payload = joblib.load(MODEL_FILE)
-            return payload['model'], payload['mae'], payload['r2'], payload.get('trained_at', 'Salvat')
-        except Exception:
-            pass
+            return payload['model'], payload['mae'], payload['r2'], payload.get('trained_at', 'Salvat (GitHub Actions)')
+        except Exception as e:
+            st.warning(f"Eroare la incarcarea modelului existent: {e}")
 
-    # Fallback doar daca nu exista model_file
+    # Fallback doar daca fisierul joblib nu este disponibil
     from sklearn.model_selection import train_test_split
     from sklearn.ensemble import RandomForestRegressor
     from sklearn.preprocessing import OneHotEncoder, StandardScaler
@@ -72,17 +105,26 @@ def load_trained_model(dataframe):
     model = Pipeline(steps=[
         ('preprocessor', preprocessor),
         ('regressor', RandomForestRegressor(
-            n_estimators=100, max_depth=16, min_samples_split=6, random_state=42, n_jobs=-1
+            n_estimators=80, max_depth=14, min_samples_split=6, random_state=42, n_jobs=-1
         ))
     ])
     model.fit(X_train, y_train)
     y_pred = model.predict(X_test)
     mae = mean_absolute_error(y_test, y_pred)
     r2 = r2_score(y_test, y_pred)
-    return model, mae, r2, "Antrenat Live"
+    return model, mae, r2, "Antrenat Local (Fallback)"
 
 
 df = load_and_prepare_data()
+model_exists = os.path.exists(MODEL_FILE)
+
+# Ascunde butonul de 'Antrenare Live' daca fisierul .joblib exista deja
+if not model_exists:
+    st.warning("⚠️ Fisierul modelului ML ('models/price_model.joblib') lipseste din repo. Se va folosi un fallback.")
+    if st.button("🚀 Antrenare Live (de urgenta)", help="Streamlit Cloud are resurse limitate CPU; folositi doar daca modelul lipseste"):
+        st.cache_resource.clear()
+        st.rerun()
+
 model, mae, r2, model_date = load_trained_model(df)
 
 # Header Metrics
@@ -92,7 +134,10 @@ with st.expander("ℹ️ Detalii Tehnice ale Bazei de Date & Modelului ML", expa
     c2.metric("Modele Auto Analizate", f"{df['Model'].nunique()} modele")
     c3.metric("Acuratețe (R² pe Test)", f"{r2 * 100:.1f}%")
     c4.metric("Marjă Eroare (MAE)", f"± {mae:,.0f} €")
-    st.caption(f"Ultima actualizare model: {model_date}")
+    if model_exists:
+        st.caption(f"🤖 **Model gata antrenat (GitHub Actions):** {model_date} | Resursele Cloud sunt conservate.")
+    else:
+        st.caption(f"⚠️ Model antrenat provizoriu: {model_date}")
 
 st.divider()
 

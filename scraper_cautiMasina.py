@@ -185,9 +185,9 @@ def scrape_cautimasina(daily_mode: bool = True, max_pages: int = MAX_PAGES_DEFAU
     start_time = time.time()
 
     if daily_mode:
-        results = scrape_cautimasina_daily(max_pages=max_pages)
+        results = scrape_cautimasina_daily(max_pages=max_pages, early_stopping=True)
     else:
-        results = []
+        results = scrape_cautimasina_daily(max_pages=max_pages, early_stopping=False)
 
     df = pd.DataFrame(results)
     if not df.empty:

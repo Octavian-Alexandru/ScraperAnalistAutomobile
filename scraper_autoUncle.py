@@ -83,13 +83,22 @@ def parse_autouncle_article(art) -> Dict[str, Any]:
         data['year'] = None
         data['mileage_km'] = None
 
-        km_match = re.search(r'([\d\.\s]+)\s*km\b', all_text, re.IGNORECASE)
-        if km_match:
-            data['mileage_km'] = normalize_number(km_match.group(1))
-
         year_matches = re.findall(r'\b(20[12]\d)\b', all_text)
         if year_matches:
             data['year'] = int(year_matches[0])
+
+        km_match = re.search(r'\b(\d{1,3}(?:[\.\s]\d{3})*|\d{1,6})\s*km\b', all_text, re.IGNORECASE)
+        if km_match:
+            km_val = normalize_number(km_match.group(1))
+            if km_val and data['year'] and km_val > 500000:
+                s_km = str(km_val)
+                s_yr = str(data['year'])
+                if s_km.startswith(s_yr) and len(s_km) > len(s_yr):
+                    try:
+                        km_val = int(s_km[len(s_yr):])
+                    except Exception:
+                        pass
+            data['mileage_km'] = km_val
 
         # 5. Combustibil
         data['fuel_type'] = None

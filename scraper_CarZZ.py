@@ -124,7 +124,7 @@ def scrape_carzz_daily(max_pages: int = MAX_PAGES_DEFAULT_DAILY, early_stopping:
         card_selector = 'a.main_items, li.item_list'
 
         for page_num in range(1, max_pages + 1):
-            url = f"https://carzz.ro/autoturisme.html?page={page_num}"
+            url = f"https://carzz.ro/autoturisme.html?order=data:descrescator&page={page_num}"
             print(f"    [CarZZ Daily] Pagina {page_num}/{max_pages} (Cele mai noi)...")
 
             page_success = False
@@ -188,9 +188,9 @@ def scrape_carzz(daily_mode: bool = True, max_pages: int = MAX_PAGES_DEFAULT_DAI
     start_time = time.time()
 
     if daily_mode:
-        results = scrape_carzz_daily(max_pages=max_pages)
+        results = scrape_carzz_daily(max_pages=max_pages, early_stopping=True)
     else:
-        results = []
+        results = scrape_carzz_daily(max_pages=max_pages, early_stopping=False)
 
     df = pd.DataFrame(results)
     if not df.empty:

@@ -473,3 +473,44 @@ def export_to_parquet(parquet_path: str = "data/ml_ready_listings.parquet", db_p
     df.to_parquet(parquet_path, index=False, engine="pyarrow")
     print(f"[+] Export Parquet reusit: {parquet_path} ({len(df):,} masini)")
     return parquet_path
+
+
+def get_new_listings_today(since_timestamp: Optional[str] = None, db_path: str = DB_PATH) -> pd.DataFrame:
+    """
+    Extrage anunturile active nou inserate astazi (sau dupa since_timestamp) din SQLite.
+    Permite identificarea oportunitatilor proaspete de arbitraj.
+    """
+    init_db(db_path)
+    today_prefix = datetime.datetime.now().strftime("%Y-%m-%d")
+    with get_connection(db_path) as conn:
+        if since_timestamp:
+            query = """
+                SELECT
+                    car_id, source, url, title, seller, location,
+                    price_eur, currency, fuel_type, description,
+                    mileage_km, year, seller_type, first_seen, last_seen,
+                    is_active, initial_price_eur
+                FROM listings
+                WHERE is_active = 1
+                  AND first_seen >= ?
+                  AND price_eur IS NOT NULL
+                  AND price_eur >= 500
+                ORDER BY first_seen DESC
+            """
+            df = pd.read_sql_query(query, conn, params=(since_timestamp,))
+        else:
+            query = """
+                SELECT
+                    car_id, source, url, title, seller, location,
+                    price_eur, currency, fuel_type, description,
+                    mileage_km, year, seller_type, first_seen, last_seen,
+                    is_active, initial_price_eur
+                FROM listings
+                WHERE is_active = 1
+                  AND first_seen LIKE ?
+                  AND price_eur IS NOT NULL
+                  AND price_eur >= 500
+                ORDER BY first_seen DESC
+            """
+            df = pd.read_sql_query(query, conn, params=(f"{today_prefix}%",))
+    return df

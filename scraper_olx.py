@@ -186,11 +186,9 @@ def scrape_olx(daily_mode: bool = True, max_pages: int = MAX_PAGES_DEFAULT_DAILY
     start_time = time.time()
 
     if daily_mode:
-        results = scrape_olx_daily(max_pages=max_pages)
+        results = scrape_olx_daily(max_pages=max_pages, early_stopping=True)
     else:
-        results = []
-        # Full mode uses scrape_year
-        # (poti apela scraper_year daca e nevoie)
+        results = scrape_olx_daily(max_pages=max_pages, early_stopping=False)
 
     df = pd.DataFrame(results)
     if not df.empty:
