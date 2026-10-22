@@ -1,46 +1,68 @@
-name: Daily Car Scraper
+name: Daily Car Market Pipeline
 
 on:
   schedule:
-    - cron: '0 3 * * *' # Rulează în fiecare noapte la ora 03:00 (ora serverului)
-  workflow_dispatch: # Îți permite să declanșezi rularea și manual din interfața GitHub
+    # 1. Rulare Nocturna Adanca (ora 02:00 UTC): scaneaza tot, sincronizeaza DB si re-antreneaza ML
+    - cron: '0 2 * * *'
+    # 2. Rulari de Arbitraj de Peste Zi (orele 08:00, 14:00, 18:00 UTC): prind instant anunturile noi si caderile de pret
+    - cron: '0 8,14,18 * * *'
+  workflow_dispatch:
+    inputs:
+      pages:
+        description: 'Numar maxim de pagini per scraper'
+        required: false
+        default: '25'
+      skip_ml:
+        description: 'Sari peste antrenarea ML (pentru scanare rapida de preturi)'
+        type: boolean
+        default: false
 
 jobs:
-  scrape-data:
+  run-pipeline:
     runs-on: ubuntu-latest
 
-    # Oferim permisiunea ca botul să poată face push la modificări
     permissions:
       contents: write
 
     steps:
-      # 1. Copiază codul tău pe serverul GitHub
+      # 1. Checkout repository
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Instalează Python
+      # 2. Setup Python 3.11
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.11' # Poți folosi versiunea pe care o ai tu (ex: 3.10)
+          python-version: '3.11'
+          cache: 'pip'
 
-      # 3. Instalează librăriile necesare
+      # 3. Instalare librarii necesare
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests pandas beautifulsoup4 openpyxl
+          pip install requests pandas beautifulsoup4 openpyxl pyarrow scikit-learn joblib playwright
+          playwright install --with-deps chromium
 
-      # 4. Rulează scriptul tău (aici pui doar scraperul fără browser)
-      - name: Run AutoUncle Scraper
-        run: python scraper_autoUncle.py
+      # 4. Rulare Pipeline (Sortare Newest + Early Stopping + SQLite + Parquet + ML)
+      - name: Run Daily Pipeline
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          PAGES="${{ github.event.inputs.pages || '25' }}"
+          EXTRA_FLAGS=""
+          if [ "${{ github.event.inputs.skip_ml }}" = "true" ]; then
+            EXTRA_FLAGS="--skip-ml"
+          fi
+          python run_daily_pipeline.py --pages $PAGES --all-scrapers $EXTRA_FLAGS
 
-      # 5. Salvează fișierul Excel înapoi în GitHub
-      - name: Commit and Push Data
+
+      # 5. Commit si Push actualizari automate
+      - name: Commit and Push Updated Database & ML Models
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action Bot"
-          # Adaugăm noul fișier Excel
-          git add data/raw_listings_old.xlsx
-          # Facem commit doar dacă există modificări
-          git commit -m "🤖 Actualizare zilnică bază de date mașini" || echo "No changes to commit"
+          git add data/cars.db data/ml_ready_listings.parquet models/price_model.joblib
+          git commit -m "🤖 [Pipeline Auto] Actualizare zilnica date, preturi si model ML" || echo "No changes to commit"
           git push
