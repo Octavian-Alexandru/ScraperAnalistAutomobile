@@ -43,12 +43,20 @@ def normalize_number(text: Optional[str]) -> Optional[int]:
 
 
 def parse_olx_card(element) -> Dict[str, Any]:
-    try:
-        html = element.evaluate("el => el.outerHTML")
-    except Exception:
+    soup = None
+    if isinstance(element, str):
+        soup = BeautifulSoup(element, "html.parser")
+    elif hasattr(element, "evaluate"):
+        try:
+            html = element.evaluate("el => el.outerHTML")
+            soup = BeautifulSoup(html, "html.parser")
+        except Exception:
+            return {}
+    elif isinstance(element, BeautifulSoup) or hasattr(element, "select_one"):
+        soup = element
+    else:
         return {}
 
-    soup = BeautifulSoup(html, "html.parser")
     data = {}
 
     try:
@@ -95,6 +103,22 @@ def parse_olx_card(element) -> Dict[str, Any]:
             elif len(text) == 4 and text.isdigit() and not data['year']:
                 data['year'] = int(text)
 
+        # Fallback euristic Regex
+        if not data.get('year') or not data.get('mileage_km'):
+            try:
+                from fallback_engine import extract_regex_card_fallback
+                raw_txt = div.get_text(" ")
+                fb = extract_regex_card_fallback(raw_txt)
+                if not data.get('year') and fb.get('year'):
+                    data['year'] = fb['year']
+                if not data.get('mileage_km') and fb.get('mileage_km'):
+                    data['mileage_km'] = fb['mileage_km']
+                if not data.get('price') and fb.get('price'):
+                    data['price'] = fb['price']
+                    data['currency'] = fb.get('currency', 'EUR')
+            except Exception:
+                pass
+
         data['seller'] = None
         data['seller_type'] = None
         data['description'] = None
@@ -107,75 +131,138 @@ def parse_olx_card(element) -> Dict[str, Any]:
     return data
 
 
+def scrape_olx_http_fallback(max_pages: int, early_stopping: bool, known_cars: dict, visited_ids: set) -> List[Dict[str, Any]]:
+    """Fallback HTTP/Cloudscraper pentru OLX când Playwright este indisponibil."""
+    from fallback_engine import fetch_with_full_fallback, extract_json_ld_car_data
+    results = []
+    consecutive_unchanged = 0
+    EARLY_STOP_THRESHOLD = 30
+
+    print("    [*] [OLX Fallback] Rulare prin modul HTTP/Cloudscraper + JSON-LD...")
+    for page_num in range(1, max_pages + 1):
+        url = f"https://www.olx.ro/auto-masini-moto-ambarcatiuni/autoturisme/?currency=EUR&search%5Border%5D=created_at:desc&search%5Bfilter_float_price:to%5D=35000&page={page_num}"
+        html, status, method = fetch_with_full_fallback(url, timeout=15)
+        if not html:
+            break
+
+        soup = BeautifulSoup(html, "html.parser")
+
+        # 1. Extragere Schema.org JSON-LD
+        ld_items = extract_json_ld_car_data(soup)
+        for item in ld_items:
+            cid = None
+            u = item.get('url', '')
+            match = re.search(r'-ID([a-zA-Z0-9]+)\.html', u)
+            if match:
+                cid = match.group(1)
+            elif item.get('title'):
+                import hashlib
+                cid = hashlib.md5(item['title'].encode()).hexdigest()[:10]
+            item['car_id'] = cid
+            item['scrape_date'] = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            if cid and cid not in visited_ids and item.get('price'):
+                results.append(item)
+                visited_ids.add(cid)
+
+        # 2. Extragere carduri HTML
+        cards = soup.select('div[data-cy="l-card"], div.css-1sw7q4x')
+        for card in cards:
+            listing = parse_olx_card(card)
+            cid = listing.get('car_id')
+            price = listing.get('price')
+            if cid and cid not in visited_ids and price:
+                results.append(listing)
+                visited_ids.add(cid)
+
+                if early_stopping and known_cars and cid in known_cars:
+                    old_p = known_cars[cid]
+                    if old_p and abs(price - old_p) < 10:
+                        consecutive_unchanged += 1
+                    else:
+                        consecutive_unchanged = 0
+
+        if early_stopping and consecutive_unchanged >= EARLY_STOP_THRESHOLD:
+            print(f"    [*] [OLX Fallback] Early Stopping atins la pagina {page_num}.")
+            break
+        random_sleep(1.0, 2.0)
+
+    return results
+
+
 def scrape_olx_daily(max_pages: int = MAX_PAGES_DEFAULT_DAILY, early_stopping: bool = True) -> List[Dict[str, Any]]:
-    """Scrapeaza cele mai noi anunturi de pe OLX (sortate dupa created_at desc) cu Early Stopping."""
+    """Scrapeaza cele mai noi anunturi de pe OLX (sortate dupa created_at desc) cu Early Stopping și fallback HTTP."""
     results = []
     visited_ids = set()
     known_cars = get_known_car_ids_and_prices(source="olx") if early_stopping else {}
     consecutive_unchanged = 0
     EARLY_STOP_THRESHOLD = 30
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context(
-            user_agent=random.choice(USER_AGENTS),
-            viewport={'width': 1920, 'height': 1080}
-        )
-        page = context.new_page()
-        page.route("**/*", lambda route: route.abort()
-                   if route.request.resource_type in ["image", "stylesheet", "media", "font"]
-                   else route.continue_())
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context(
+                user_agent=random.choice(USER_AGENTS),
+                viewport={'width': 1920, 'height': 1080}
+            )
+            page = context.new_page()
+            page.route("**/*", lambda route: route.abort()
+                       if route.request.resource_type in ["image", "stylesheet", "media", "font"]
+                       else route.continue_())
 
-        for page_num in range(1, max_pages + 1):
-            url = f"https://www.olx.ro/auto-masini-moto-ambarcatiuni/autoturisme/?currency=EUR&search%5Border%5D=created_at:desc&search%5Bfilter_float_price:to%5D=35000&page={page_num}"
-            print(f"    [OLX Daily] Pagina {page_num}/{max_pages} (Cele mai noi)...")
+            for page_num in range(1, max_pages + 1):
+                url = f"https://www.olx.ro/auto-masini-moto-ambarcatiuni/autoturisme/?currency=EUR&search%5Border%5D=created_at:desc&search%5Bfilter_float_price:to%5D=35000&page={page_num}"
+                print(f"    [OLX Daily] Pagina {page_num}/{max_pages} (Cele mai noi)...")
 
-            page_success = False
-            for attempt in range(3):
+                page_success = False
+                for attempt in range(3):
+                    try:
+                        page.goto(url, timeout=30000)
+                        page.wait_for_selector('div[data-cy="l-card"]', timeout=12000)
+                        page_success = True
+                        break
+                    except Exception:
+                        random_sleep(2.0, 4.0)
+
+                if not page_success:
+                    print(f"    [OLX Daily] Pagina {page_num} indisponibila sau rate-limit.")
+                    break
+
                 try:
-                    page.goto(url, timeout=30000)
-                    page.wait_for_selector('div[data-cy="l-card"]', timeout=12000)
-                    page_success = True
-                    break
-                except Exception:
-                    random_sleep(2.0, 4.0)
+                    cards = page.query_selector_all('div[data-cy="l-card"]')
+                    if not cards:
+                        break
+                    for card in cards:
+                        listing = parse_olx_card(card)
+                        cid = listing.get('car_id')
+                        price = listing.get('price')
+                        if cid and cid not in visited_ids and price:
+                            results.append(listing)
+                            visited_ids.add(cid)
 
-            if not page_success:
-                print(f"    [OLX Daily] Pagina {page_num} indisponibila sau rate-limit.")
-                break
-
-            try:
-                cards = page.query_selector_all('div[data-cy="l-card"]')
-                if not cards:
-                    break
-                for card in cards:
-                    listing = parse_olx_card(card)
-                    cid = listing.get('car_id')
-                    price = listing.get('price')
-                    if cid and cid not in visited_ids and price:
-                        results.append(listing)
-                        visited_ids.add(cid)
-
-                        if early_stopping and known_cars:
-                            if cid in known_cars:
-                                old_p = known_cars[cid]
-                                if old_p and abs(price - old_p) < 10:
-                                    consecutive_unchanged += 1
+                            if early_stopping and known_cars:
+                                if cid in known_cars:
+                                    old_p = known_cars[cid]
+                                    if old_p and abs(price - old_p) < 10:
+                                        consecutive_unchanged += 1
+                                    else:
+                                        consecutive_unchanged = 0
                                 else:
                                     consecutive_unchanged = 0
-                            else:
-                                consecutive_unchanged = 0
 
-                if early_stopping and consecutive_unchanged >= EARLY_STOP_THRESHOLD:
-                    print(f"    [*] [OLX] Early Stopping la pagina {page_num}: s-a atins granita anunturilor deja existente ({consecutive_unchanged} neschimbate).")
+                    if early_stopping and consecutive_unchanged >= EARLY_STOP_THRESHOLD:
+                        print(f"    [*] [OLX] Early Stopping la pagina {page_num}: s-a atins granita anunturilor deja existente ({consecutive_unchanged} neschimbate).")
+                        break
+
+                    random_sleep(1.0, 2.0)
+                except Exception as e:
+                    print(f"    [!] Eroare parsare OLX pagina {page_num}: {e}")
                     break
 
-                random_sleep(1.0, 2.0)
-            except Exception as e:
-                print(f"    [!] Eroare parsare OLX pagina {page_num}: {e}")
-                break
+            browser.close()
 
-        browser.close()
+    except Exception as e:
+        print(f"    [!] Playwright indisponibil sau blocat ({e}). Activăm fallback HTTP/Cloudscraper pe OLX...")
+        return scrape_olx_http_fallback(max_pages, early_stopping, known_cars, visited_ids)
 
     return results
 

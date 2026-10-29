@@ -44,12 +44,20 @@ def normalize_number(text: Optional[str]) -> Optional[int]:
 
 
 def parse_autovit_card(element) -> Dict[str, Any]:
-    try:
-        html = element.evaluate("el => el.outerHTML")
-    except Exception:
+    soup = None
+    if isinstance(element, str):
+        soup = BeautifulSoup(element, "html.parser")
+    elif hasattr(element, "evaluate"):
+        try:
+            html = element.evaluate("el => el.outerHTML")
+            soup = BeautifulSoup(html, "html.parser")
+        except Exception:
+            return {}
+    elif isinstance(element, BeautifulSoup) or hasattr(element, "select_one"):
+        soup = element
+    else:
         return {}
 
-    soup = BeautifulSoup(html, "html.parser")
     data = {}
 
     try:
@@ -65,7 +73,7 @@ def parse_autovit_card(element) -> Dict[str, Any]:
         data['price'] = normalize_number(price_el.get_text(strip=True)) if price_el else None
         data['currency'] = currency_el.get_text(strip=True) if currency_el else 'EUR'
 
-        list_items = soup.select('ul.ooa-1o0axny li p')
+        list_items = soup.select('ul.ooa-1o0axny li p, ul li p')
         data['location'] = list_items[0].get_text(strip=True) if len(list_items) >= 1 else None
 
         if len(list_items) >= 2:
@@ -82,6 +90,22 @@ def parse_autovit_card(element) -> Dict[str, Any]:
         data['mileage_km'] = normalize_number(mileage_el.get_text(strip=True)) if mileage_el else None
         data['fuel_type'] = fuel_el.get_text(strip=True) if fuel_el else None
 
+        # Fallback euristic Regex dacă lipsesc anul sau kilometrajul
+        if not data.get('year') or not data.get('mileage_km'):
+            try:
+                from fallback_engine import extract_regex_card_fallback
+                raw_txt = soup.get_text(" ")
+                fb = extract_regex_card_fallback(raw_txt)
+                if not data.get('year') and fb.get('year'):
+                    data['year'] = fb['year']
+                if not data.get('mileage_km') and fb.get('mileage_km'):
+                    data['mileage_km'] = fb['mileage_km']
+                if not data.get('price') and fb.get('price'):
+                    data['price'] = fb['price']
+                    data['currency'] = fb.get('currency', 'EUR')
+            except Exception:
+                pass
+
         data['seller'] = None
         data['description'] = None
         data['scrape_date'] = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -92,75 +116,137 @@ def parse_autovit_card(element) -> Dict[str, Any]:
     return data
 
 
+def scrape_autovit_http_fallback(max_pages: int, early_stopping: bool, known_cars: dict, visited_ids: set) -> List[Dict[str, Any]]:
+    """Mecanism de rezervă prin HTTP direct și Cloudscraper când Playwright nu poate fi pornit."""
+    from fallback_engine import fetch_with_full_fallback, extract_json_ld_car_data
+    results = []
+    consecutive_unchanged = 0
+    EARLY_STOP_THRESHOLD = 30
+
+    print("    [*] [Autovit Fallback] Rulare prin modul HTTP/Cloudscraper + JSON-LD...")
+    for page_num in range(1, max_pages + 1):
+        url = f"https://www.autovit.ro/autoturisme?search%5Bfilter_float_mileage%3Ato%5D=250000&search%5Bfilter_float_price%3Ato%5D=35000&search%5Border%5D=created_at%3Adesc&page={page_num}"
+        html, status, method = fetch_with_full_fallback(url, timeout=15)
+        if not html:
+            break
+
+        soup = BeautifulSoup(html, "html.parser")
+
+        # 1. Extragere Schema.org JSON-LD
+        ld_items = extract_json_ld_car_data(soup)
+        for item in ld_items:
+            cid = None
+            u = item.get('url', '')
+            if '-ID' in u:
+                cid = u.split('-ID')[-1].replace('.html', '')
+            elif item.get('title'):
+                import hashlib
+                cid = hashlib.md5(item['title'].encode()).hexdigest()[:10]
+            item['car_id'] = cid
+            item['scrape_date'] = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            if cid and cid not in visited_ids and item.get('price'):
+                results.append(item)
+                visited_ids.add(cid)
+
+        # 2. Extragere carduri HTML
+        cards = soup.select('article[data-id], article')
+        for card in cards:
+            listing = parse_autovit_card(card)
+            cid = listing.get('car_id')
+            price = listing.get('price')
+            if cid and cid not in visited_ids and price:
+                results.append(listing)
+                visited_ids.add(cid)
+
+                if early_stopping and known_cars and cid in known_cars:
+                    old_p = known_cars[cid]
+                    if old_p and abs(price - old_p) < 10:
+                        consecutive_unchanged += 1
+                    else:
+                        consecutive_unchanged = 0
+
+        if early_stopping and consecutive_unchanged >= EARLY_STOP_THRESHOLD:
+            print(f"    [*] [Autovit Fallback] Early Stopping atins la pagina {page_num}.")
+            break
+        random_sleep(1.0, 2.0)
+
+    return results
+
+
 def scrape_autovit_daily(max_pages: int = MAX_PAGES_DEFAULT_DAILY, early_stopping: bool = True) -> List[Dict[str, Any]]:
-    """Scrapeaza cele mai noi anunturi folosind un singur browser Playwright cu Early Stopping."""
+    """Scrapeaza cele mai noi anunturi folosind un singur browser Playwright cu Early Stopping și fallback HTTP."""
     results = []
     visited_ids = set()
     known_cars = get_known_car_ids_and_prices(source="autovit") if early_stopping else {}
     consecutive_unchanged = 0
     EARLY_STOP_THRESHOLD = 30
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context(
-            user_agent=random.choice(USER_AGENTS),
-            viewport={'width': 1920, 'height': 1080}
-        )
-        page = context.new_page()
-        page.route("**/*", lambda route: route.abort()
-                   if route.request.resource_type in ["image", "stylesheet", "media", "font"]
-                   else route.continue_())
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context(
+                user_agent=random.choice(USER_AGENTS),
+                viewport={'width': 1920, 'height': 1080}
+            )
+            page = context.new_page()
+            page.route("**/*", lambda route: route.abort()
+                       if route.request.resource_type in ["image", "stylesheet", "media", "font"]
+                       else route.continue_())
 
-        for page_num in range(1, max_pages + 1):
-            url = f"https://www.autovit.ro/autoturisme?search%5Bfilter_float_mileage%3Ato%5D=250000&search%5Bfilter_float_price%3Ato%5D=35000&search%5Border%5D=created_at%3Adesc&page={page_num}"
-            print(f"    [Autovit Daily] Pagina {page_num}/{max_pages} (Cele mai noi)...")
+            for page_num in range(1, max_pages + 1):
+                url = f"https://www.autovit.ro/autoturisme?search%5Bfilter_float_mileage%3Ato%5D=250000&search%5Bfilter_float_price%3Ato%5D=35000&search%5Border%5D=created_at%3Adesc&page={page_num}"
+                print(f"    [Autovit Daily] Pagina {page_num}/{max_pages} (Cele mai noi)...")
 
-            page_success = False
-            for attempt in range(3):
+                page_success = False
+                for attempt in range(3):
+                    try:
+                        page.goto(url, timeout=30000)
+                        page.wait_for_selector('article[data-id]', timeout=10000)
+                        page_success = True
+                        break
+                    except Exception:
+                        random_sleep(2.0, 3.5)
+
+                if not page_success:
+                    print(f"    [Autovit Daily] Timeout sau rate-limit la pagina {page_num}. Oprim.")
+                    break
+
                 try:
-                    page.goto(url, timeout=30000)
-                    page.wait_for_selector('article[data-id]', timeout=10000)
-                    page_success = True
-                    break
-                except Exception:
-                    random_sleep(2.0, 3.5)
+                    cards = page.query_selector_all('article[data-id]')
+                    if not cards:
+                        break
+                    for card in cards:
+                        listing = parse_autovit_card(card)
+                        cid = listing.get('car_id')
+                        price = listing.get('price')
+                        if cid and cid not in visited_ids and price:
+                            results.append(listing)
+                            visited_ids.add(cid)
 
-            if not page_success:
-                print(f"    [Autovit Daily] Timeout sau rate-limit la pagina {page_num}. Oprim.")
-                break
-
-            try:
-                cards = page.query_selector_all('article[data-id]')
-                if not cards:
-                    break
-                for card in cards:
-                    listing = parse_autovit_card(card)
-                    cid = listing.get('car_id')
-                    price = listing.get('price')
-                    if cid and cid not in visited_ids and price:
-                        results.append(listing)
-                        visited_ids.add(cid)
-
-                        if early_stopping and known_cars:
-                            if cid in known_cars:
-                                old_p = known_cars[cid]
-                                if old_p and abs(price - old_p) < 10:
-                                    consecutive_unchanged += 1
+                            if early_stopping and known_cars:
+                                if cid in known_cars:
+                                    old_p = known_cars[cid]
+                                    if old_p and abs(price - old_p) < 10:
+                                        consecutive_unchanged += 1
+                                    else:
+                                        consecutive_unchanged = 0
                                 else:
                                     consecutive_unchanged = 0
-                            else:
-                                consecutive_unchanged = 0
 
-                if early_stopping and consecutive_unchanged >= EARLY_STOP_THRESHOLD:
-                    print(f"    [*] [Autovit] Early Stopping la pagina {page_num}: s-a atins granita anunturilor deja existente ({consecutive_unchanged} neschimbate).")
+                    if early_stopping and consecutive_unchanged >= EARLY_STOP_THRESHOLD:
+                        print(f"    [*] [Autovit] Early Stopping la pagina {page_num}: s-a atins granita anunturilor deja existente ({consecutive_unchanged} neschimbate).")
+                        break
+
+                    random_sleep(1.0, 2.0)
+                except Exception as e:
+                    print(f"    [!] Eroare parsare pagina {page_num}: {e}")
                     break
 
-                random_sleep(1.0, 2.0)
-            except Exception as e:
-                print(f"    [!] Eroare parsare pagina {page_num}: {e}")
-                break
+            browser.close()
 
-        browser.close()
+    except Exception as e:
+        print(f"    [!] Playwright indisponibil sau blocat ({e}). Activăm fallback HTTP/Cloudscraper...")
+        return scrape_autovit_http_fallback(max_pages, early_stopping, known_cars, visited_ids)
 
     return results
 

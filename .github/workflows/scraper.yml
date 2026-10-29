@@ -46,8 +46,12 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests pandas beautifulsoup4 openpyxl pyarrow scikit-learn joblib playwright
+          pip install -r requirements.txt cloudscraper lxml optuna
           playwright install --with-deps chromium
+
+      # 3b. Verificare calitate cod (Teste Automate)
+      - name: Run Tests
+        run: python -m pytest tests/ -v --tb=short
 
       # 4. Rulare Pipeline Arbitraj Rapid (implicit 5 pagini cu Early Stopping activ)
       - name: Run Fast Arbitrage Pipeline
@@ -59,14 +63,14 @@ jobs:
           PAGES="${{ github.event.inputs.pages || '5' }}"
           python run_daily_pipeline.py --pages $PAGES
 
-      # 5. Commit si Push baza de date actualizata si parquet
-      - name: Commit and Push Database & Parquet
+      # 5. Commit si Push baza de date actualizata, parquet si raportul zilnic
+      - name: Commit and Push Database & Results
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action Bot"
           git pull --rebase origin main || true
-          git add data/cars.db data/ml_ready_listings.parquet
-          git commit -m "⚡ [Arbitraj Rapid] Actualizare anunturi noi si alerte piata" || echo "No changes to commit"
+          git add data/cars.db data/ml_ready_listings.parquet results/ models/price_model_xgboost.joblib models/price_model.joblib
+          git commit -m "⚡ [Arbitraj Rapid] Actualizare anunturi noi, Deal Scores si raport de piata" || echo "No changes to commit"
           git push
 
   night-maintenance:
@@ -93,8 +97,12 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests pandas beautifulsoup4 openpyxl pyarrow scikit-learn joblib playwright
+          pip install -r requirements.txt cloudscraper lxml optuna
           playwright install --with-deps chromium
+
+      # 3b. Verificare calitate cod (Teste Automate)
+      - name: Run Tests
+        run: python -m pytest tests/ -v --tb=short
 
       # 4. Rulare Pipeline Complet (Full Deep Scrape fara Early Stopping + Retrain ML)
       - name: Run Full Night Pipeline
@@ -109,12 +117,12 @@ jobs:
           fi
           python run_daily_pipeline.py --full $PAGES_ARG
 
-      # 5. Commit si Push baza de date, parquet si modelul ML re-antrenat
-      - name: Commit and Push Database, Parquet & ML Model
+      # 5. Commit si Push baza de date, parquet si modelele ML re-antrenate
+      - name: Commit and Push Database, Parquet & ML Models
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action Bot"
           git pull --rebase origin main || true
-          git add data/cars.db data/ml_ready_listings.parquet models/price_model.joblib
-          git commit -m "🌙 [Deep Scrape & ML] Sincronizare piata, curatare inactive si re-antrenare model ML" || echo "No changes to commit"
+          git add data/cars.db data/ml_ready_listings.parquet models/price_model_xgboost.joblib models/price_model.joblib results/
+          git commit -m "🌙 [Deep Scrape & ML] Sincronizare piata, curatare inactive, optimizare XGBoost si raport zilnic" || echo "No changes to commit"
           git push
