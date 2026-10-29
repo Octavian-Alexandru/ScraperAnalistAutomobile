@@ -1,7 +1,7 @@
 import os
 
 # Calea exactă către backend-ul tău
-TARGET_DIR = r"C:\Users\ALEXANDRU\Documents\MASINI Scrapping si ML"
+TARGET_DIR = r"C:\Users\ALEXANDRU\Documents\MASINI Antigravity"
 OUTPUT_FILE = "backend_code_dump.txt"
 
 # Adăugăm o listă de FIȘIERE complet interzise (Securitate Critică)
