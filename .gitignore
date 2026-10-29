@@ -58,3 +58,8 @@ desktop.ini
 .env
 .env.local
 .env.*.local
+
+# Database backups and outbox buffers
+data/backups/
+data/alerts_outbox.jsonl
+data/recovery_buffer.jsonl

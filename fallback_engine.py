@@ -363,19 +363,31 @@ class AlertOutboxManager:
     """
 
     @staticmethod
-    def enqueue_alert(channel: str, message: str, metadata: Optional[Dict[str, Any]] = None):
+    def enqueue_alert(channel: str, message: str, metadata: Optional[Any] = None):
         """Salvează o alertă în coada offline."""
         os.makedirs(os.path.dirname(OUTBOX_PATH), exist_ok=True)
+        meta_dict = {}
+        if metadata is not None:
+            if hasattr(metadata, "to_dict"):
+                meta_dict = metadata.to_dict()
+            elif isinstance(metadata, dict):
+                meta_dict = metadata
+            else:
+                try:
+                    meta_dict = dict(metadata)
+                except Exception:
+                    meta_dict = {"raw": str(metadata)}
+
         payload = {
             "channel": channel,
             "message": message,
-            "metadata": metadata or {},
+            "metadata": meta_dict,
             "created_at": datetime.datetime.now().isoformat(),
             "retry_count": 0
         }
         try:
             with open(OUTBOX_PATH, "a", encoding="utf-8") as f:
-                f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+                f.write(json.dumps(payload, ensure_ascii=False, default=str) + "\n")
             logger.info(f"[AlertOutbox] Alerta salvată în outbox pentru canalul '{channel}'.")
         except Exception as e:
             logger.error(f"[AlertOutbox] Eroare la scrierea alertei în outbox: {e}")

@@ -109,10 +109,14 @@ def parse_mobile_card(soup_item) -> Dict[str, Any]:
         return {}
 
 
-def scrape_mobile_de(max_pages: int = MAX_PAGES_DEFAULT_DAILY, early_stopping: bool = True) -> pd.DataFrame:
+def scrape_mobile_de(daily_mode: bool = True, max_pages: int = MAX_PAGES_DEFAULT_DAILY, early_stopping: Optional[bool] = None) -> pd.DataFrame:
     """
     Scrapează cele mai recente oferte de pe Mobile.de folosind cloudscraper cu anti-bot bypass.
     """
+    if early_stopping is None:
+        early_stopping = daily_mode
+    if not daily_mode and max_pages == MAX_PAGES_DEFAULT_DAILY:
+        max_pages = MAX_PAGES_DEFAULT_FULL
     logger.info(f"[mobile_de] Pornim scraping pentru primele {max_pages} pagini...")
     scraper = cloudscraper.create_scraper(
         browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True}

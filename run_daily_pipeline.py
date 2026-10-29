@@ -120,7 +120,10 @@ def send_arbitrage_alerts(
     new_cars[['Brand', 'Model', 'Trim']] = new_cars['title'].apply(parse_car_title)
     new_cars['Trim'] = new_cars['Trim'].fillna('Standard')
     new_cars['fuel_type'] = new_cars.apply(infer_fuel_type, axis=1)
-    new_cars['engine_size'] = new_cars.apply(infer_engine_size, axis=1).fillna(2.0)
+    new_cars['engine_size'] = pd.to_numeric(new_cars.apply(infer_engine_size, axis=1), errors='coerce').fillna(2.0)
+    new_cars['year'] = pd.to_numeric(new_cars['year'], errors='coerce')
+    new_cars['mileage_km'] = pd.to_numeric(new_cars['mileage_km'], errors='coerce')
+    new_cars['price_eur'] = pd.to_numeric(new_cars['price_eur'], errors='coerce')
 
     # Corectie rulaj concatenat
     def correct_km(row):
@@ -162,6 +165,16 @@ def send_arbitrage_alerts(
     if candidates.empty:
         print("    Nicio masina noua nu indeplineste criteriile complete de compatibilitate ML.")
         return
+
+    # Asiguram dtypes numerice si categorice stricte pentru modelul sklearn/xgboost
+    candidates['year'] = candidates['year'].astype(int)
+    candidates['mileage_km'] = candidates['mileage_km'].astype(float)
+    candidates['engine_size'] = candidates['engine_size'].astype(float)
+    candidates['price_eur'] = candidates['price_eur'].astype(float)
+    candidates['Brand'] = candidates['Brand'].astype(str)
+    candidates['Model'] = candidates['Model'].astype(str)
+    candidates['Trim'] = candidates['Trim'].fillna('Standard').astype(str)
+    candidates['fuel_type'] = candidates['fuel_type'].fillna('Benzina').astype(str)
 
     pred_success = False
     if model is not None:
@@ -273,7 +286,7 @@ def send_arbitrage_alerts(
             res = dispatch_alert_with_fallback(
                 subject=f"🚨 CHILIPIR: {title}",
                 message=discord_content,
-                metadata=r
+                metadata=r.to_dict() if hasattr(r, 'to_dict') else dict(r)
             )
             print(f"    [Alert] Expediere alerta pentru {title[:30]}: {res['results']}")
             time.sleep(0.3)
@@ -296,6 +309,7 @@ def run_pipeline(
     run_lajumate: bool = False,
     run_publi24: bool = False,
     run_tiriac: bool = False,
+    run_autoscout24: bool = False,
     use_multi_agent: bool = False,
     backup_db: bool = True,
     skip_scraping: bool = False,
@@ -333,7 +347,7 @@ def run_pipeline(
         print(f"[!] Eroare drenare buffer recuperare: {e}")
 
     # -------------------------------------------------------------
-    # ETAPA 1: RULARE SCRAPERE (11 PLATFORME)
+    # ETAPA 1: RULARE SCRAPERE (12 PLATFORME)
     # -------------------------------------------------------------
     if not skip_scraping:
         print("\n[ETAPA 1/4] Rulare Scrapere Active...")
@@ -401,11 +415,25 @@ def run_pipeline(
                 from scraper_tiriac_auto import scrape_tiriac_auto
                 tasks.append(("Tiriac Auto", scrape_tiriac_auto))
 
+            if run_all or run_autoscout24:
+                from scraper_autoscout24 import scrape_autoscout24
+                tasks.append(("AutoScout24", scrape_autoscout24))
+
+            import inspect
+
             def execute_scraper(name, scraper_func):
                 t0 = time.time()
                 try:
                     print(f" -> [{name}] Pornire scraping...")
-                    df_res = scraper_func(daily_mode=daily_mode, max_pages=max_pages)
+                    sig = inspect.signature(scraper_func)
+                    kwargs = {}
+                    if 'daily_mode' in sig.parameters:
+                        kwargs['daily_mode'] = daily_mode
+                    if 'max_pages' in sig.parameters:
+                        kwargs['max_pages'] = max_pages
+                    if 'early_stopping' in sig.parameters and 'daily_mode' not in sig.parameters:
+                        kwargs['early_stopping'] = daily_mode
+                    df_res = scraper_func(**kwargs)
                     dur = time.time() - t0
                     print(f"    [OK] {name}: {len(df_res)} anunturi procesate in {dur:.1f}s.")
                     return name, len(df_res), None
@@ -542,7 +570,7 @@ def run_pipeline(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Daily Car Market Pipeline Orchestrator (11 Platforme)")
+    parser = argparse.ArgumentParser(description="Daily Car Market Pipeline Orchestrator (12 Platforme)")
     parser.add_argument("--full", action="store_true", help="Ruleaza modul nocturn complet (fara early stopping, sincronizare DB, retrain ML)")
     parser.add_argument("--pages", type=int, default=5, help="Numar pagini scanate per scraper (implicit 5 pentru zi, 25 pentru full)")
     parser.add_argument("--sequential", action="store_true", help="Ruleaza scraperele secvential (default este in paralel)")
@@ -559,6 +587,7 @@ def main():
     parser.add_argument("--lajumate", action="store_true", help="Include scraperul Lajumate")
     parser.add_argument("--publi24", action="store_true", help="Include scraperul Publi24")
     parser.add_argument("--tiriac", action="store_true", help="Include scraperul Tiriac Auto Rulate")
+    parser.add_argument("--autoscout24", action="store_true", help="Include scraperul AutoScout24 (Europa)")
     parser.add_argument("--no-backup", action="store_true", help="Dezactiveaza backup-ul automat al bazei de date")
     parser.add_argument("--skip-scraping", action="store_true", help="Sari peste etapa de scraping")
     parser.add_argument("--skip-ml", action="store_true", help="Sari peste etapa de antrenare ML")
@@ -573,7 +602,7 @@ def main():
     run_all = not (
         args.single_scraper or args.autovit or args.olx or args.cautimasina or
         args.bestauto or args.plusauto or args.carzz or args.mobile_de or
-        args.lajumate or args.publi24 or args.tiriac
+        args.lajumate or args.publi24 or args.tiriac or args.autoscout24
     )
 
     run_pipeline(
@@ -591,6 +620,7 @@ def main():
         run_lajumate=args.lajumate,
         run_publi24=args.publi24,
         run_tiriac=args.tiriac,
+        run_autoscout24=args.autoscout24,
         use_multi_agent=args.multi_agent,
         backup_db=not args.no_backup,
         skip_scraping=args.skip_scraping,
