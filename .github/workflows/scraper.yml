@@ -48,7 +48,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt cloudscraper lxml optuna
+          pip install -r requirements.txt cloudscraper lxml optuna httpx httpx2
           playwright install --with-deps chromium
 
       # 3b. Verificare calitate cod (Teste Automate)
@@ -101,7 +101,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt cloudscraper lxml optuna
+          pip install -r requirements.txt cloudscraper lxml optuna httpx httpx2
           playwright install --with-deps chromium
 
       # 3b. Verificare calitate cod (Teste Automate)
