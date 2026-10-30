@@ -310,6 +310,7 @@ def run_pipeline(
     run_publi24: bool = False,
     run_tiriac: bool = False,
     run_autoscout24: bool = False,
+    run_willhaben: bool = False,
     use_multi_agent: bool = False,
     backup_db: bool = True,
     skip_scraping: bool = False,
@@ -347,7 +348,7 @@ def run_pipeline(
         print(f"[!] Eroare drenare buffer recuperare: {e}")
 
     # -------------------------------------------------------------
-    # ETAPA 1: RULARE SCRAPERE (12 PLATFORME)
+    # ETAPA 1: RULARE SCRAPERE (13 PLATFORME - 10 RO + 3 VEST)
     # -------------------------------------------------------------
     if not skip_scraping:
         print("\n[ETAPA 1/4] Rulare Scrapere Active...")
@@ -418,6 +419,10 @@ def run_pipeline(
             if run_all or run_autoscout24:
                 from scraper_autoscout24 import scrape_autoscout24
                 tasks.append(("AutoScout24", scrape_autoscout24))
+
+            if run_all or run_willhaben:
+                from scraper_willhaben import scrape_willhaben
+                tasks.append(("Willhaben (Austria)", scrape_willhaben))
 
             import inspect
 
@@ -538,6 +543,42 @@ def run_pipeline(
     except Exception as e:
         print(f"[!] Eroare la actualizarea lichiditatii: {e}")
 
+    # 4.3b Oportunități de Arbitraj Cross-Border (Import Vest -> România)
+    try:
+        print("\n[*] Scanare Oportunități Cross-Border Arbitrage (Import Germania/Austria/Vest -> RO)...")
+        from cross_border_arbitrage import find_top_import_arbitrage_deals
+        df_import = find_top_import_arbitrage_deals(db_path=DB_PATH, min_profit_eur=1500.0, min_roi_pct=12.0, limit=8)
+        if not df_import.empty:
+            print(f"\n[🚢] S-AU DETECTAT {len(df_import)} OPORTUNITĂȚI RENTABILE DE IMPORT DIN VEST (după scăderea tuturor cheltuielilor):")
+            print("-" * 105)
+            for _, r in df_import.iterrows():
+                print(f"  * [{r['origin_country']}] {r['title'][:32]:<32} | Preț Vest: {r['foreign_price_eur']:,.0f} € | Piață RO: {r['estimated_ro_price_eur']:,.0f} € | Cheltuieli: {r['import_expenses_eur']:,.0f} € | PROFIT NET: +{r['net_profit_eur']:,.0f} € (ROI: {r['roi_pct']}%)")
+            print("-" * 105)
+
+            # Expediere alerte pe canalele active
+            from alert_dispatcher import dispatch_alert_with_fallback
+            for _, r in df_import.head(4).iterrows():
+                msg = (
+                    f"🚢 **OPORTUNITATE IMPORT ({r['origin_country']}): {r['title']}**\n"
+                    f"━━━━━━━━━━━━━━━━━━━━\n"
+                    f"💶 **Preț Achiziție Extern:** {r['foreign_price_eur']:,.0f} €\n"
+                    f"📈 **Valoare Revanzare RO:** {r['estimated_ro_price_eur']:,.0f} € *({r.get('valuation_source', 'ML')})*\n"
+                    f"🚚 **Cheltuieli Import (Platformă + RAR + Acte):** {r['import_expenses_eur']:,.0f} €\n"
+                    f"🟢 **PROFIT NET REAL:** **+{r['net_profit_eur']:,.0f} €**\n"
+                    f"📊 **Randament Investiție (ROI):** **{r['roi_pct']}%**\n"
+                    f"🚗 **Specificații:** An {r['year']} | {r['mileage_km']:,} km | {r.get('fuel_type', 'N/A')}\n"
+                    f"🔗 **Link Anunț:** {r.get('url', 'N/A')}"
+                )
+                dispatch_alert_with_fallback(
+                    subject=f"🚢 OPORTUNITATE IMPORT: {r['title']}",
+                    message=msg,
+                    metadata=dict(r)
+                )
+        else:
+            print("    Nu s-au detectat mașini externe care să depășească pragul de profit de 1.500 € după deducerea transportului.")
+    except Exception as e:
+        print(f"    [!] Eroare scanare arbitraj cross-border: {e}")
+
     # 4.4 Verificare Alerte Personalizate (Watchlists)
     try:
         print("\n[*] Verificare reguli de Watchlist personalizate...")
@@ -588,6 +629,7 @@ def main():
     parser.add_argument("--publi24", action="store_true", help="Include scraperul Publi24")
     parser.add_argument("--tiriac", action="store_true", help="Include scraperul Tiriac Auto Rulate")
     parser.add_argument("--autoscout24", action="store_true", help="Include scraperul AutoScout24 (Europa)")
+    parser.add_argument("--willhaben", action="store_true", help="Include scraperul Willhaben (Austria)")
     parser.add_argument("--no-backup", action="store_true", help="Dezactiveaza backup-ul automat al bazei de date")
     parser.add_argument("--skip-scraping", action="store_true", help="Sari peste etapa de scraping")
     parser.add_argument("--skip-ml", action="store_true", help="Sari peste etapa de antrenare ML")

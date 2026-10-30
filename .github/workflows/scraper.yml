@@ -71,9 +71,9 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action Bot"
           git pull --rebase origin ${{ github.ref_name }} || git pull --rebase origin master || true
-          git add data/cars.db data/ml_ready_listings.parquet results/ models/price_model_xgboost.joblib models/price_model.joblib data/fx_cache.json
+          git add data/cars.db data/ml_ready_listings.parquet results/ models/price_model_xgboost.joblib models/price_model.joblib data/fx_cache.json data/import_config.json
           git commit -m "⚡ [Arbitraj Rapid] Actualizare anunturi noi, Deal Scores si raport de piata" || echo "No changes to commit"
-          git push origin HEAD:${{ github.ref_name }} || git push origin master || git push origin master || git push
+          git push origin HEAD:${{ github.ref_name }} || git push origin master || git push
 
   night-maintenance:
     name: 🌙 Mentenanta si Deep Scrape (Job de Noapte)
@@ -127,6 +127,6 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action Bot"
           git pull --rebase origin ${{ github.ref_name }} || git pull --rebase origin master || true
-          git add data/cars.db data/ml_ready_listings.parquet models/price_model_xgboost.joblib models/price_model.joblib results/ data/fx_cache.json
+          git add data/cars.db data/ml_ready_listings.parquet models/price_model_xgboost.joblib models/price_model.joblib results/ data/fx_cache.json data/import_config.json
           git commit -m "🌙 [Deep Scrape & ML] Sincronizare piata, curatare inactive, optimizare XGBoost si raport zilnic" || echo "No changes to commit"
           git push origin HEAD:${{ github.ref_name }} || git push origin master || git push

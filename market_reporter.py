@@ -170,6 +170,24 @@ def generate_daily_market_report(
                 f"| {t} | [{r['cheapest_source']}]({r['cheapest_url']}) | **{r['cheapest_price_eur']:,.0f} €** | [{r['expensive_source']}]({r['expensive_url']}) | {r['expensive_price_eur']:,.0f} € | **+{r['price_diff_eur']:,.0f} € (-{r['savings_pct']}%)** |"
             )
 
+    # 6. Oportunități de Import Vest -> România
+    try:
+        from cross_border_arbitrage import find_top_import_arbitrage_deals
+        df_import = find_top_import_arbitrage_deals(db_path=db_path, min_profit_eur=1200.0, min_roi_pct=10.0, limit=5)
+        if not df_import.empty:
+            md_lines.append(f"\n---\n")
+            md_lines.append(f"## 6. 🚢 Top Oportunități de Import Vest -> România (Germania, Austria, Olanda)")
+            md_lines.append("| Țară | Model | Preț Extern | Piață România | Cost Import | Profit NET | ROI % | Link |")
+            md_lines.append("|---|---|---|---|---|---|---|---|")
+            for _, r in df_import.iterrows():
+                t = str(r['title'])[:30]
+                url_str = f"[Vezi Oferta]({r['url']})" if r.get('url') else "N/A"
+                md_lines.append(
+                    f"| **{r['origin_country']}** | {t} | {r['foreign_price_eur']:,.0f} € | {r['estimated_ro_price_eur']:,.0f} € | {r['import_expenses_eur']:,.0f} € | **+{r['net_profit_eur']:,.0f} €** | **+{r['roi_pct']:.1f}%** | {url_str} |"
+                )
+    except Exception:
+        pass
+
     md_lines.append(f"\n---\n")
     md_lines.append(f"*Raport generat de motorul ScraperAnalistAutomobile. Utilizați pentru decizii informate de flipping și arbitraj auto.*")
 

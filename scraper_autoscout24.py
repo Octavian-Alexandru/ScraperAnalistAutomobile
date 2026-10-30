@@ -78,7 +78,7 @@ def normalize_mileage(km_text: str) -> Optional[int]:
         return None
 
 
-def parse_autoscout_card(card) -> Optional[Dict[str, Any]]:
+def parse_autoscout_card(card, default_country: str = "DE") -> Optional[Dict[str, Any]]:
     """
     Parsează un card/articol din pagina de rezultate AutoScout24.
     Extrage toate câmpurile relevante pentru baza de date.
@@ -188,7 +188,8 @@ def parse_autoscout_card(card) -> Optional[Dict[str, Any]]:
             "engine_size": engine_size,
             "seller": seller_type,
             "seller_type": seller_type,
-            "location": location or "Germania",
+            "location": location or default_country,
+            "country": default_country,
             "url": url,
             "description": details_text[:500]
         }
@@ -232,7 +233,7 @@ class AutoScout24Scraper(BaseScraper):
         countries: listă de coduri țară (D=Germania, A=Austria, NL=Olanda, B=Belgia)
         """
         if countries is None:
-            countries = ["D"]  # implicit doar Germania
+            countries = ["D", "A", "NL", "BE"] if not daily_mode else ["D", "A"]
 
         all_cars = []
         total_pages_scraped = 0
@@ -286,9 +287,10 @@ class AutoScout24Scraper(BaseScraper):
                 page_cars = 0
 
                 for card in cards:
-                    parsed = parse_autoscout_card(card)
+                    parsed = parse_autoscout_card(card, default_country=country)
                     if parsed:
                         parsed['source'] = 'autoscout24'
+                        parsed['country'] = country
                         parsed['location'] = parsed.get('location', '') or country
                         all_cars.append(parsed)
                         page_cars += 1

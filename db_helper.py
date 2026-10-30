@@ -84,8 +84,19 @@ def init_db(db_path: str = DB_PATH):
             );
         """)
 
+        # 2b. Migrare automata coloane aditionale (country si engine_size)
+        cursor.execute("PRAGMA table_info(listings);")
+        existing_cols = [r["name"] for r in cursor.fetchall()]
+        if "country" not in existing_cols:
+            cursor.execute("ALTER TABLE listings ADD COLUMN country TEXT DEFAULT 'RO';")
+            cursor.execute("UPDATE listings SET country = 'DE' WHERE source IN ('mobile_de');")
+            cursor.execute("UPDATE listings SET country = 'RO' WHERE country IS NULL OR country = '';")
+        if "engine_size" not in existing_cols:
+            cursor.execute("ALTER TABLE listings ADD COLUMN engine_size REAL;")
+
         # 3. Indecsi de performanta pentru cautare ultra-rapida
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_url ON listings(url);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_country ON listings(country);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_source ON listings(source);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_active ON listings(is_active);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_last_seen ON listings(last_seen);")
@@ -246,6 +257,38 @@ def save_scraped_data(new_df: pd.DataFrame, source_name: str, db_path: str = DB_
                 except (ValueError, TypeError):
                     year = None
 
+                # Țară de proveniență
+                country = str(row.get('country', '')).strip().upper() if pd.notna(row.get('country')) and str(row.get('country')).strip() else None
+                if not country:
+                    if source_name in ['mobile_de']:
+                        country = 'DE'
+                    elif source_name in ['autoscout24']:
+                        loc_u = str(location or '').upper()
+                        if any(k in loc_u for k in ['AUSTRIA', 'WIEN', 'SALZBURG', 'GRAZ', ', AT']) or loc_u.startswith('A-'):
+                            country = 'AT'
+                        elif any(k in loc_u for k in ['NEDERLAND', 'NETHERLANDS', 'AMSTERDAM', ', NL']):
+                            country = 'NL'
+                        elif any(k in loc_u for k in ['BELGIUM', 'BELGIQUE', 'BRUXELLES', ', BE']):
+                            country = 'BE'
+                        elif any(k in loc_u for k in ['ITALIA', 'ITALY', 'MILANO', ', IT']):
+                            country = 'IT'
+                        elif any(k in loc_u for k in ['FRANCE', 'PARIS', ', FR']):
+                            country = 'FR'
+                        else:
+                            country = 'DE'
+                    elif source_name in ['willhaben']:
+                        country = 'AT'
+                    elif source_name in ['otomoto']:
+                        country = 'PL'
+                    else:
+                        country = 'RO'
+
+                # Capacitate cilindrică
+                try:
+                    engine_size = float(row.get('engine_size')) if pd.notna(row.get('engine_size')) else None
+                except (ValueError, TypeError):
+                    engine_size = None
+
                 if cid not in existing_map:
                     # ANUNT NOU
                     stats['new'] += 1
@@ -254,7 +297,7 @@ def save_scraped_data(new_df: pd.DataFrame, source_name: str, db_path: str = DB_
                         cid, source_name, url, title, seller, location,
                         price_eur, orig_price, curr, fuel_type, description,
                         mileage_km, year, seller_type, item_ts, item_ts, 1,
-                        init_p, 0
+                        init_p, 0, country, engine_size
                     ))
                     if price_eur:
                         price_history_inserts.append((cid, price_eur, orig_price, curr, item_ts))
@@ -282,7 +325,7 @@ def save_scraped_data(new_df: pd.DataFrame, source_name: str, db_path: str = DB_
 
                     listings_updates.append((
                         price_eur, orig_price, curr, mileage_km, item_ts, 1,
-                        price_drop_count, cid
+                        price_drop_count, country, engine_size, cid
                     ))
 
             # Executie in batch (tranzactie atomica rapida)
@@ -292,8 +335,8 @@ def save_scraped_data(new_df: pd.DataFrame, source_name: str, db_path: str = DB_
                         car_id, source, url, title, seller, location,
                         price_eur, original_price, currency, fuel_type, description,
                         mileage_km, year, seller_type, first_seen, last_seen, is_active,
-                        initial_price_eur, price_drop_count
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        initial_price_eur, price_drop_count, country, engine_size
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, listings_inserts)
 
             if listings_updates:
@@ -305,7 +348,9 @@ def save_scraped_data(new_df: pd.DataFrame, source_name: str, db_path: str = DB_
                         mileage_km = COALESCE(?, mileage_km),
                         last_seen = ?,
                         is_active = ?,
-                        price_drop_count = ?
+                        price_drop_count = ?,
+                        country = COALESCE(?, country),
+                        engine_size = COALESCE(?, engine_size)
                     WHERE car_id = ?
                 """, listings_updates)
 

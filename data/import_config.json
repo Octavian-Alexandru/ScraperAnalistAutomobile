@@ -1,0 +1,53 @@
+{
+  "metadata": {
+    "version": "1.0.0",
+    "last_updated": "2026-10-30 17:39:41",
+    "description": "Parametri dinamici pentru calculul costului de import auto din Europa de Vest"
+  },
+  "fuel": {
+    "fuel_price_eur_per_liter": 1.75,
+    "avg_consumption_l_100km": 6.8
+  },
+  "vignettes_and_tolls": {
+    "austria_vignette_10days_eur": 11.5,
+    "austria_special_tolls_eur": 13.5,
+    "hungary_matrica_10days_eur": 18.0,
+    "romania_rovinieta_eur": 3.5,
+    "czech_slovakia_transit_eur": 14.0
+  },
+  "transit_plates_germany": {
+    "yellow_short_term_5days_eur": 110.0,
+    "red_export_15days_eur": 230.0,
+    "austria_green_plates_eur": 210.0,
+    "netherlands_export_eur": 160.0
+  },
+  "travel_and_stay": {
+    "flight_or_bus_ticket_eur": 110.0,
+    "local_transport_to_dealer_eur": 35.0,
+    "hotel_per_night_eur": 75.0,
+    "nights_needed": 1,
+    "daily_food_allowance_eur": 25.0,
+    "trip_duration_days": 2.5
+  },
+  "opportunity_cost": {
+    "time_cost_per_day_eur": 75.0,
+    "risk_buffer_eur": 100.0
+  },
+  "platform_rates": {
+    "DE_SOUTH": 650.0,
+    "DE_CENTRAL": 750.0,
+    "DE_NORTH": 850.0,
+    "AT": 580.0,
+    "NL": 850.0,
+    "BE": 850.0,
+    "IT_NORTH": 720.0,
+    "FR_EAST": 880.0,
+    "remote_inspection_report_eur": 50.0
+  },
+  "romania_registration": {
+    "rar_inspection_and_civ_eur": 160.0,
+    "authorized_translations_eur": 30.0,
+    "police_drpciv_plates_eur": 25.0,
+    "rca_estimate_eur": 180.0
+  }
+}

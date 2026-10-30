@@ -103,6 +103,7 @@ def parse_mobile_card(soup_item) -> Dict[str, Any]:
             "seller": "Mobile.de Dealer",
             "seller_type": "Dealer",
             "location": location,
+            "country": "DE",
             "scrape_date": datetime.datetime.now().strftime("%Y-%m-%d")
         }
     except Exception:
