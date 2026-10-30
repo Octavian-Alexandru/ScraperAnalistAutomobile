@@ -237,3 +237,4 @@ if __name__ == "__main__":
     print(f"Extrase: {len(df_res)} autoturisme din Austria.")
     if not df_res.empty:
         print(df_res[['title', 'price', 'mileage_km', 'year', 'fuel_type', 'location', 'country']].head(5))
+

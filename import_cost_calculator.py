@@ -102,6 +102,15 @@ DEFAULT_IMPORT_CONFIG: Dict[str, Any] = {
         "authorized_translations_eur": 30.0,    # Traducere autorizată acte (Brief mare/mic, factură/contract) (~150 RON)
         "police_drpciv_plates_eur": 25.0,       # Taxă certificat înmatriculare + plăcuțe de înmatriculare negre (~120 RON)
         "rca_estimate_eur": 180.0               # Poliță RCA 1 an România (estimare medie)
+    },
+    "vat_rates": {
+        "DE": 0.19,     # Germania MwSt 19%
+        "AT": 0.20,     # Austria MwSt 20%
+        "NL": 0.21,     # Olanda BTW 21%
+        "BE": 0.21,     # Belgia TVA 21%
+        "IT": 0.22,     # Italia IVA 22%
+        "FR": 0.20,     # Franța TVA 20%
+        "PL": 0.23      # Polonia PTU 23%
     }
 }
 
@@ -163,7 +172,9 @@ def calculate_import_costs(
     expected_romanian_selling_price_eur: Optional[float] = None,
     fuel_consumption_override: Optional[float] = None,
     use_export_plates: bool = True,  # True = numere roșii (15/30 zile), False = galbene (5 zile)
-    include_opportunity_cost: bool = True
+    include_opportunity_cost: bool = True,
+    buyer_type: str = "persoana_fizica",  # "persoana_fizica", "srl_platitor_tva_vies", "srl_neplatitor"
+    vat_deductible: bool = True          # True dacă mașina este vândută cu TVA deductibil (MwSt. ausweisbar)
 ) -> Dict[str, Any]:
     """
     Calculează negru pe alb costul exact de procurare și adus în România pentru ambele scenarii:
@@ -244,11 +255,48 @@ def calculate_import_costs(
     cheaper_option = "platform" if total_platform < total_personal_trip else "personal_trip"
     cost_difference = abs(round(total_personal_trip - total_platform, 2))
 
+    # 4b. REGIM FISCAL (ACHIZIȚIE NETTO CU SCUTIRE TVA PE FIRMĂ CU COD VIES)
+    origin_cc = country_code.upper().strip()
+    if origin_cc in ["GERMANIA", "GERMANY"]:
+        origin_cc = "DE"
+    elif origin_cc in ["AUSTRIA"]:
+        origin_cc = "AT"
+    elif origin_cc in ["OLANDA", "NETHERLANDS"]:
+        origin_cc = "NL"
+    elif origin_cc in ["BELGIA", "BELGIUM"]:
+        origin_cc = "BE"
+
+    vat_dict = cfg.get("vat_rates", {"DE": 0.19, "AT": 0.20, "NL": 0.21, "BE": 0.21, "IT": 0.22, "FR": 0.20, "PL": 0.23})
+    vat_rate = vat_dict.get(origin_cc, 0.19)
+
+    is_netto_applied = (buyer_type == "srl_platitor_tva_vies" and vat_deductible)
+    if is_netto_applied:
+        effective_car_price = round(car_purchase_price_eur / (1.0 + vat_rate), 2)
+        vat_saved_eur = round(car_purchase_price_eur - effective_car_price, 2)
+    else:
+        effective_car_price = car_purchase_price_eur
+        vat_saved_eur = 0.0
+
+    fiscal_summary = {
+        "buyer_type": buyer_type,
+        "vat_deductible": vat_deductible,
+        "vat_rate_pct": round(vat_rate * 100, 1),
+        "gross_price_eur": car_purchase_price_eur,
+        "effective_purchase_price_eur": effective_car_price,
+        "vat_saved_eur": vat_saved_eur,
+        "is_netto_applied": is_netto_applied,
+        "fiscal_advantage_note": (
+            f"Achiziție NETTO pe firmă VIES: ai economisit {vat_saved_eur:,.0f} € (TVA {round(vat_rate*100)}% din {origin_cc})!"
+            if is_netto_applied else
+            "Achiziție standard la preț BRUT (cu TVA inclus)."
+        )
+    }
+
     # 5. RENTABILITATE ECONOMICĂ (DACĂ AVEM PREȚ ESTIMAT DE VÂNZARE ÎN RO)
     financials = None
     if expected_romanian_selling_price_eur and expected_romanian_selling_price_eur > 0:
-        total_investment_personal = car_purchase_price_eur + total_personal_trip
-        total_investment_platform = car_purchase_price_eur + total_platform
+        total_investment_personal = effective_car_price + total_personal_trip
+        total_investment_platform = effective_car_price + total_platform
         
         net_profit_personal = round(expected_romanian_selling_price_eur - total_investment_personal, 2)
         net_profit_platform = round(expected_romanian_selling_price_eur - total_investment_platform, 2)
@@ -306,6 +354,7 @@ def calculate_import_costs(
                 "km_added_to_car": 0
             }
         },
+        "fiscal_regime": fiscal_summary,
         "comparison": {
             "recommended_method": cheaper_option,
             "savings_with_recommended_eur": cost_difference,

@@ -20,6 +20,10 @@ DEFAULT_RATES = {
     "EUR": 5.09,
     "USD": 4.75,
     "GBP": 5.95,
+    "PLN": 1.19,
+    "CHF": 5.42,
+    "CZK": 0.203,
+    "HUF": 0.0127,
     "RON": 1.0
 }
 
@@ -42,7 +46,7 @@ def fetch_live_bnr_rate(currency: str = "EUR") -> Optional[float]:
             if resp.status_code == 200:
                 data = resp.json()
                 ron_rate = data.get("rates", {}).get("RON")
-                if ron_rate and 3.5 <= ron_rate <= 7.0:
+                if ron_rate and float(ron_rate) > 0:
                     return round(float(ron_rate), 4)
         except Exception as e:
             logger.debug(f"[FX] Eroare fetch live {currency} din {url}: {e}")
@@ -126,10 +130,11 @@ def convert_to_eur(price: float, currency: str) -> float:
         rate_info = get_exchange_rate("EUR")
         eur_ron_rate = rate_info["rate"]
         return round(float(price) / eur_ron_rate, 2)
-    elif curr == "USD":
-        usd_info = get_exchange_rate("USD")
+    else:
+        # Monede internaționale (PLN, USD, GBP, CHF, HUF etc.) -> RON -> EUR
+        curr_info = get_exchange_rate(curr)
         eur_info = get_exchange_rate("EUR")
-        # USD -> RON -> EUR
-        ron_val = float(price) * usd_info["rate"]
-        return round(ron_val / eur_info["rate"], 2)
+        if curr_info["rate"] and eur_info["rate"] > 0:
+            ron_val = float(price) * curr_info["rate"]
+            return round(ron_val / eur_info["rate"], 2)
     return round(float(price), 2)

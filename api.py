@@ -49,6 +49,17 @@ app.add_middleware(
 
 
 # --- SCHEME PYDANTIC PENTRU REQUEST & RESPONSE ---
+class ImportCalculationRequest(BaseModel):
+    country_code: str = Field("DE", json_schema_extra={"example": "DE"})
+    city_or_zip: Optional[str] = Field(None, json_schema_extra={"example": "München"})
+    car_purchase_price_eur: float = Field(..., gt=0, json_schema_extra={"example": 12000.0})
+    expected_romanian_selling_price_eur: Optional[float] = Field(None, json_schema_extra={"example": 15500.0})
+    buyer_type: str = Field("persoana_fizica", json_schema_extra={"example": "srl_platitor_tva_vies"})
+    vat_deductible: bool = Field(True, json_schema_extra={"example": True})
+    use_export_plates: bool = Field(True, json_schema_extra={"example": True})
+    include_opportunity_cost: bool = Field(True, json_schema_extra={"example": True})
+
+
 class CarEstimateRequest(BaseModel):
     brand: str = Field(..., json_schema_extra={"example": "BMW"})
     model: str = Field(..., json_schema_extra={"example": "Seria 3"})
@@ -238,6 +249,47 @@ def list_duplicates(
 ):
     """Returnează mașini duplicate pe platforme diferite cu diferență de preț."""
     df = get_top_spreads(limit=limit, min_spread=min_spread)
+    if df.empty:
+        return {"count": 0, "results": []}
+    return {"count": len(df), "results": df.to_dict(orient="records")}
+
+
+@app.post("/api/v1/import/calculate", tags=["Import & Cross-Border"])
+def api_calculate_import_costs(req: ImportCalculationRequest):
+    """
+    Calculează negru pe alb costurile de import (Deplasare personală vs Platformă)
+    și rentabilitatea economică (cu avantaj fiscal Netto pe firmă VIES).
+    """
+    from import_cost_calculator import calculate_import_costs
+    return calculate_import_costs(
+        country_code=req.country_code,
+        city_or_zip=req.city_or_zip,
+        car_purchase_price_eur=req.car_purchase_price_eur,
+        expected_romanian_selling_price_eur=req.expected_romanian_selling_price_eur,
+        use_export_plates=req.use_export_plates,
+        include_opportunity_cost=req.include_opportunity_cost,
+        buyer_type=req.buyer_type,
+        vat_deductible=req.vat_deductible
+    )
+
+
+@app.get("/api/v1/import/top-deals", tags=["Import & Cross-Border"])
+def api_get_top_import_deals(
+    min_profit_eur: float = Query(1500.0, ge=100.0),
+    min_roi_pct: float = Query(12.0, ge=1.0),
+    limit: int = Query(20, ge=1, le=100),
+    buyer_type: str = Query("persoana_fizica", pattern="^(persoana_fizica|srl_platitor_tva_vies)$")
+):
+    """
+    Returnează cele mai profitabile oportunități de import din Germania, Austria și Europa de Vest.
+    """
+    from cross_border_arbitrage import find_top_import_arbitrage_deals
+    df = find_top_import_arbitrage_deals(
+        min_profit_eur=min_profit_eur,
+        min_roi_pct=min_roi_pct,
+        limit=limit,
+        buyer_type=buyer_type
+    )
     if df.empty:
         return {"count": 0, "results": []}
     return {"count": len(df), "results": df.to_dict(orient="records")}

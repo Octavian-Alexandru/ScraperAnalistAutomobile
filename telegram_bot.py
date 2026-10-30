@@ -198,6 +198,84 @@ def handle_stats_command() -> str:
     )
 
 
+def handle_import_command(args: list) -> str:
+    """
+    Format: /import DE 12500 15800
+    sau: /import AT 8900 11500
+    """
+    if len(args) < 2:
+        return (
+            "⚠️ **Format comanda /import:**\n"
+            "`/import <Tara: DE/AT/NL/BE> <Pret_Vest_EUR> [Pret_Estimat_RO_EUR]`\n\n"
+            "Exemplu: `/import DE 12500 15800`\n"
+            "sau: `/import AT 9500 12000`"
+        )
+    country = args[0].upper().strip()
+    try:
+        p_vest = float(args[1])
+    except ValueError:
+        return "❌ Prețul extern trebuie să fie un număr valid (ex: 12500)."
+
+    p_ro = None
+    if len(args) >= 3:
+        try:
+            p_ro = float(args[2])
+        except ValueError:
+            pass
+
+    from import_cost_calculator import calculate_import_costs
+    res = calculate_import_costs(
+        country_code=country,
+        car_purchase_price_eur=p_vest,
+        expected_romanian_selling_price_eur=p_ro
+    )
+    p = res["scenarios"]["personal_trip"]
+    t = res["scenarios"]["platform_transport"]
+
+    msg = (
+        f"🚢 **SIMULARE IMPORT {country} (Negru pe Alb):**\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"💶 **Preț Achiziție:** {p_vest:,.0f} €\n"
+        f"📍 **Distanță medie:** {res['distance_km']} km\n\n"
+        f"🚚 **Varianta Recomandată (Platformă TIR):**\n"
+        f"• Transport trailer: {t['breakdown']['platform_transport_fee_eur']:,.0f} €\n"
+        f"• RAR + Acte + Traduceri: {t['breakdown']['romania_rar_and_registration_eur']:,.0f} €\n"
+        f"• **Total Cheltuieli:** `{t['total_cost_eur']:,.0f} €` (0 km uzură, 0 zile pierdute)\n\n"
+        f"🚗 **Varianta Deplasare Personală (Pe roți):**\n"
+        f"• Combustibil + Viniete + Numere Zoll: {p['breakdown']['fuel_eur'] + p['breakdown']['vignettes_and_tolls_eur'] + p['breakdown']['transit_plates_eur']:,.0f} €\n"
+        f"• Bilet avion + Cazare + Masă: {p['breakdown']['transport_dus_eur'] + p['breakdown']['hotel_and_food_eur']:,.0f} €\n"
+        f"• **Total Pe Roți:** `{p['total_cost_eur']:,.0f} €` (+ {p['km_added_to_car']} km și {p['days_spent']} zile)\n"
+    )
+    if res.get("financials"):
+        fin_t = res["financials"]["scenario_platform"]
+        msg += (
+            f"\n📈 **Bilanț Financiar:**\n"
+            f"• Preț vânzare estimat RO: {p_ro:,.0f} €\n"
+            f"• Investiție totală: {fin_t['total_invested_eur']:,.0f} €\n"
+            f"• **Profit NET:** `+{fin_t['net_profit_eur']:,.0f} €` (ROI: `{fin_t['roi_pct']}%`)\n"
+        )
+    return msg
+
+
+def handle_topimport_command() -> str:
+    """Returnează top chilipiruri externe de import din SQLite."""
+    from cross_border_arbitrage import find_top_import_arbitrage_deals
+    df = find_top_import_arbitrage_deals(min_profit_eur=1000.0, min_roi_pct=10.0, limit=5)
+    if df.empty:
+        return "Nu s-au găsit oportunități recente de import peste pragul de 1.000 €."
+
+    lines = ["🚢 **TOP CHILIPIRURI IMPORT (Germania & Austria):**\n━━━━━━━━━━━━━━━━━━━━"]
+    for _, r in df.iterrows():
+        lines.append(
+            f"• **[{r['origin_country']}] {r['title'][:28]}** ({r['year']})\n"
+            f"  Preț Vest: `{r['foreign_price_eur']:,.0f} €` | Estimat RO: `{r['estimated_ro_price_eur']:,.0f} €`\n"
+            f"  Transport + RAR: `{r['import_expenses_eur']:,.0f} €`\n"
+            f"  🟢 **Profit Net:** `+{r['net_profit_eur']:,.0f} €` (ROI `{r['roi_pct']}%`)\n"
+            f"  🔗 [Vezi Anunț]({r.get('url', '')})\n"
+        )
+    return "\n".join(lines)
+
+
 def process_message(text: str) -> str:
     """Dispecer central de comenzi pentru botul Telegram."""
     t = text.strip()
@@ -208,12 +286,19 @@ def process_message(text: str) -> str:
             "• `/check <Marca> <Model> <An> <KM> [Preț]` - Evaluează instant o mașină din teren\n"
             "• `/top` - Top oportunități de arbitraj ale zilei\n"
             "• `/drops` - Ultimele scăderi mari de preț\n"
+            "• `/import <tara> <pret_vest> [pret_ro]` - Simulator costuri import (DE/AT/NL/BE)\n"
+            "• `/topimport` - Top chilipiruri externe de adus în România\n"
             "• `/stats` - Statistici despre piața auto\n\n"
             "Exemplu: `/check BMW Seria 3 2019 140000 13500`"
         )
     elif t.startswith("/check"):
         args = t[6:].strip().split()
         return handle_check_command(args)
+    elif t.startswith("/topimport"):
+        return handle_topimport_command()
+    elif t.startswith("/import"):
+        args = t[7:].strip().split()
+        return handle_import_command(args)
     elif t.startswith("/top"):
         return handle_top_command()
     elif t.startswith("/drops"):

@@ -253,7 +253,9 @@ def find_top_import_arbitrage_deals(
     db_path: str = DB_PATH,
     min_profit_eur: float = 1500.0,
     min_roi_pct: float = 12.0,
-    limit: int = 15
+    limit: int = 15,
+    buyer_type: str = "persoana_fizica",
+    vat_deductible: bool = True
 ) -> pd.DataFrame:
     """
     Scanează toate ofertele active culese din piețele vestice (Germania, Austria, Olanda, Belgia)
@@ -328,18 +330,21 @@ def find_top_import_arbitrage_deals(
             ro_market_price = val_est["predicted_price_eur"]
             est_source = val_est.get("valuation_tier", "ML/Heuristic")
 
-        # 2. Calcul cost import detaliat
+        # 2. Calcul cost import detaliat cu regim fiscal
         costs = calculate_import_costs(
             country_code=country,
             city_or_zip=loc,
             car_purchase_price_eur=foreign_price,
-            expected_romanian_selling_price_eur=ro_market_price
+            expected_romanian_selling_price_eur=ro_market_price,
+            buyer_type=buyer_type,
+            vat_deductible=vat_deductible
         )
 
         opt_cost = costs["scenarios"]["platform_transport"]["total_cost_eur"]
-        total_inv = foreign_price + opt_cost
+        effective_price = costs["fiscal_regime"]["effective_purchase_price_eur"]
+        total_inv = effective_price + opt_cost
         net_profit = round(ro_market_price - total_inv, 0)
-        roi_pct = round((net_profit / total_inv) * 100.0, 1)
+        roi_pct = round((net_profit / total_inv) * 100.0, 1) if total_inv > 0 else 0.0
 
         if net_profit >= min_profit_eur and roi_pct >= min_roi_pct:
             opportunities.append({
@@ -357,6 +362,8 @@ def find_top_import_arbitrage_deals(
                 "total_investment_eur": round(total_inv, 0),
                 "net_profit_eur": net_profit,
                 "roi_pct": roi_pct,
+                "vat_saved_eur": costs["fiscal_regime"]["vat_saved_eur"],
+                "is_netto": costs["fiscal_regime"]["is_netto_applied"],
                 "valuation_source": est_source,
                 "url": r.get('url'),
                 "source": r.get('source')

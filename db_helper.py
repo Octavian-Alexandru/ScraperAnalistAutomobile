@@ -20,7 +20,9 @@ CURS_EUR = 5.09  # Curs RON -> EUR
 def get_connection(db_path: str = DB_PATH, max_retries: int = 4, busy_timeout_ms: int = 30000) -> sqlite3.Connection:
     """Creeaza si configureaza o conexiune optimizata SQLite cu WAL mode si retry la locking."""
     import time
-    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    dir_name = os.path.dirname(db_path)
+    if dir_name:
+        os.makedirs(dir_name, exist_ok=True)
     delay = 0.5
     for attempt in range(max_retries):
         try:
@@ -84,7 +86,7 @@ def init_db(db_path: str = DB_PATH):
             );
         """)
 
-        # 2b. Migrare automata coloane aditionale (country si engine_size)
+        # 2b. Migrare automata coloane aditionale (country, engine_size, vin, vin_check_status)
         cursor.execute("PRAGMA table_info(listings);")
         existing_cols = [r["name"] for r in cursor.fetchall()]
         if "country" not in existing_cols:
@@ -93,11 +95,16 @@ def init_db(db_path: str = DB_PATH):
             cursor.execute("UPDATE listings SET country = 'RO' WHERE country IS NULL OR country = '';")
         if "engine_size" not in existing_cols:
             cursor.execute("ALTER TABLE listings ADD COLUMN engine_size REAL;")
+        if "vin" not in existing_cols:
+            cursor.execute("ALTER TABLE listings ADD COLUMN vin TEXT;")
+        if "vin_check_status" not in existing_cols:
+            cursor.execute("ALTER TABLE listings ADD COLUMN vin_check_status TEXT DEFAULT 'NOT_SPECIFIED';")
 
         # 3. Indecsi de performanta pentru cautare ultra-rapida
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_url ON listings(url);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_country ON listings(country);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_source ON listings(source);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_vin ON listings(vin);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_active ON listings(is_active);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_last_seen ON listings(last_seen);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_year_price ON listings(year, price_eur);")
@@ -289,6 +296,24 @@ def save_scraped_data(new_df: pd.DataFrame, source_name: str, db_path: str = DB_
                 except (ValueError, TypeError):
                     engine_size = None
 
+                # Serie de șasiu (VIN) & status validare
+                vin = str(row.get('vin', '')).strip().upper() if pd.notna(row.get('vin')) and str(row.get('vin')).strip() else None
+                if not vin and (title or description):
+                    try:
+                        from vin_checker import extract_vin_from_text
+                        vin = extract_vin_from_text(f"{title or ''} {description or ''}")
+                    except Exception:
+                        vin = None
+
+                vin_check_status = "NOT_SPECIFIED"
+                if vin:
+                    try:
+                        from vin_checker import decode_vin
+                        res_vin = decode_vin(vin)
+                        vin_check_status = res_vin.get("status", "VALID")
+                    except Exception:
+                        vin_check_status = "DETECTED"
+
                 if cid not in existing_map:
                     # ANUNT NOU
                     stats['new'] += 1
@@ -297,7 +322,7 @@ def save_scraped_data(new_df: pd.DataFrame, source_name: str, db_path: str = DB_
                         cid, source_name, url, title, seller, location,
                         price_eur, orig_price, curr, fuel_type, description,
                         mileage_km, year, seller_type, item_ts, item_ts, 1,
-                        init_p, 0, country, engine_size
+                        init_p, 0, country, engine_size, vin, vin_check_status
                     ))
                     if price_eur:
                         price_history_inserts.append((cid, price_eur, orig_price, curr, item_ts))
@@ -325,7 +350,7 @@ def save_scraped_data(new_df: pd.DataFrame, source_name: str, db_path: str = DB_
 
                     listings_updates.append((
                         price_eur, orig_price, curr, mileage_km, item_ts, 1,
-                        price_drop_count, country, engine_size, cid
+                        price_drop_count, country, engine_size, vin, vin_check_status, cid
                     ))
 
             # Executie in batch (tranzactie atomica rapida)
@@ -335,8 +360,9 @@ def save_scraped_data(new_df: pd.DataFrame, source_name: str, db_path: str = DB_
                         car_id, source, url, title, seller, location,
                         price_eur, original_price, currency, fuel_type, description,
                         mileage_km, year, seller_type, first_seen, last_seen, is_active,
-                        initial_price_eur, price_drop_count, country, engine_size
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        initial_price_eur, price_drop_count, country, engine_size,
+                        vin, vin_check_status
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, listings_inserts)
 
             if listings_updates:
@@ -350,7 +376,9 @@ def save_scraped_data(new_df: pd.DataFrame, source_name: str, db_path: str = DB_
                         is_active = ?,
                         price_drop_count = ?,
                         country = COALESCE(?, country),
-                        engine_size = COALESCE(?, engine_size)
+                        engine_size = COALESCE(?, engine_size),
+                        vin = COALESCE(?, vin),
+                        vin_check_status = COALESCE(?, vin_check_status)
                     WHERE car_id = ?
                 """, listings_updates)
 

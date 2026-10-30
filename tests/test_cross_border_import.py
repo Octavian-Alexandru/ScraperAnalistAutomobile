@@ -135,3 +135,131 @@ class TestDatabaseCountrySupport:
             cols = [r[1] for r in conn.execute("PRAGMA table_info(listings)").fetchall()]
             assert "country" in cols
             assert "engine_size" in cols
+            assert "vin" in cols
+            assert "vin_check_status" in cols
+
+
+class TestOtomotoScraper:
+    def test_parse_otomoto_item_valid(self):
+        from scraper_otomoto import parse_otomoto_item
+        fake_node = {
+            "id": "6151031577",
+            "title": "BMW Seria 5 520d xDrive mHEV M Sport",
+            "url": "https://www.otomoto.pl/osobowe/oferta/bmw-seria-5-ID6Ih6iJ.html",
+            "price": {
+                "amount": {
+                    "units": 249900,
+                    "currencyCode": "PLN"
+                },
+                "badges": ["INVOICE_ISSUED"],
+                "isGross": True
+            },
+            "parameters": [
+                {"key": "make", "value": "bmw"},
+                {"key": "model", "value": "seria-5"},
+                {"key": "year", "value": "2024"},
+                {"key": "mileage", "value": "10684"},
+                {"key": "fuel_type", "value": "diesel"},
+                {"key": "engine_capacity", "value": "1995"},
+                {"key": "gearbox", "value": "automatic"}
+            ],
+            "location": {
+                "city": {"name": "Warszawa"},
+                "region": {"name": "Mazowieckie"}
+            },
+            "seller": {
+                "__typename": "ProfessionalSeller"
+            }
+        }
+        car = parse_otomoto_item(fake_node)
+        assert car is not None
+        assert car["car_id"] == "otomoto_6151031577"
+        assert car["country"] == "PL"
+        assert car["currency"] == "EUR"
+        # 249,900 PLN in EUR should be ~ 50,000 - 65,000 EUR
+        assert 40000 < car["price"] < 70000
+        assert car["year"] == 2024
+        assert car["mileage_km"] == 10684
+        assert car["fuel_type"] == "Diesel"
+        assert car["engine_size"] == 2.0
+        assert car["transmission"] == "Automata"
+        assert car["seller_type"] == "Dealer"
+        assert car["has_vat_deductible"] == 1
+
+
+class TestNegotiationGenerator:
+    def test_generate_negotiation_scripts(self):
+        from negotiation_generator import generate_negotiation_pack
+        pack = generate_negotiation_pack(
+            car_title="Audi A4 2.0 TDI Avant S-Line",
+            asking_price_eur=16500.0,
+            country="DE",
+            seller_type="Dealer",
+            buyer_type="srl_platitor_tva_vies",
+            mileage_km=145000,
+            year=2019
+        )
+        assert "pricing" in pack
+        assert "german_scripts" in pack
+        assert "english_scripts" in pack
+        assert pack["pricing"]["target_offer_eur"] < 16500.0
+
+        de = pack["german_scripts"]
+        # Conține întrebările tehnice cheie în germană
+        assert "Scheckheftgepflegt" in de["technical_inquiry"]
+        assert "Unfallfrei" in de["technical_inquiry"]
+        assert "TÜV" in de["technical_inquiry"]
+        # Conține solicitarea de factură Netto pentru SRL
+        assert "Netto-Kauf" in de["netto_vat_inquiry"] or "MwSt" in de["netto_vat_inquiry"]
+        # Oferta fermă de preț
+        assert "angebot" in de["firm_purchase_offer"].lower()
+
+
+class TestVinConsistencyAndRar:
+    def test_audit_vin_consistency(self):
+        from vin_checker import audit_vin_consistency, get_rar_history_url, get_cepik_history_url
+        clean_res = audit_vin_consistency("UU14SD74G56789123", stated_year=2024)
+        assert clean_res["is_valid"] is True
+        assert "rar_url" in clean_res
+        assert "cepik_url" in clean_res
+        assert get_rar_history_url("UU14SD74G56789123").startswith("https://")
+        assert get_cepik_history_url("UU14SD74G56789123").startswith("https://")
+
+    def test_audit_vin_year_mismatch(self):
+        from vin_checker import audit_vin_consistency
+        # Caracterul 10 este 'D' -> 2013, dar vânzătorul declară 2021
+        mismatch_res = audit_vin_consistency("WAUZZZ8K0DA012345", stated_year=2021)
+        assert mismatch_res.get("is_suspicious") is True
+        assert mismatch_res.get("status") == "SUSPECT_YEAR_MISMATCH"
+
+
+class TestApiImportEndpoints:
+    def test_api_import_calculate(self):
+        from fastapi.testclient import TestClient
+        from api import app
+        client = TestClient(app)
+        payload = {
+            "country_code": "DE",
+            "city_or_zip": "München",
+            "car_purchase_price_eur": 12000.0,
+            "expected_romanian_selling_price_eur": 15500.0,
+            "buyer_type": "srl_platitor_tva_vies"
+        }
+        resp = client.post("/api/v1/import/calculate", json=payload)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "scenarios" in data
+        assert "financials" in data
+        assert data["distance_km"] == 1450
+
+    def test_api_import_top_deals(self):
+        from fastapi.testclient import TestClient
+        from api import app
+        client = TestClient(app)
+        resp = client.get("/api/v1/import/top-deals?min_profit_eur=500&limit=5")
+        assert resp.status_code == 200
+        data = resp.json()
+        deals = data.get("results") or data.get("deals")
+        assert deals is not None
+        assert isinstance(deals, list)
+

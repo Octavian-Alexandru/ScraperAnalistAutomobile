@@ -311,6 +311,7 @@ def run_pipeline(
     run_tiriac: bool = False,
     run_autoscout24: bool = False,
     run_willhaben: bool = False,
+    run_otomoto: bool = False,
     use_multi_agent: bool = False,
     backup_db: bool = True,
     skip_scraping: bool = False,
@@ -423,6 +424,10 @@ def run_pipeline(
             if run_all or run_willhaben:
                 from scraper_willhaben import scrape_willhaben
                 tasks.append(("Willhaben (Austria)", scrape_willhaben))
+
+            if run_all or run_otomoto:
+                from scraper_otomoto import scrape_otomoto
+                tasks.append(("Otomoto (Polonia)", scrape_otomoto))
 
             import inspect
 
@@ -595,6 +600,18 @@ def run_pipeline(
     except Exception as e:
         print(f"[!] Eroare la verificarea watchlist-urilor: {e}")
 
+    # 4.4b Verificare Automată VIN & Cazier Tehnic (RAR / CEPiK / NHTSA)
+    try:
+        print("\n[*] Verificare Automată Serii de Șasiu (VIN & Cazier Tehnic)...")
+        from vin_checker import batch_verify_database_vins
+        vin_stats = batch_verify_database_vins(db_path=DB_PATH, limit=100)
+        if vin_stats.get("vins_extracted", 0) > 0:
+            print(f"    [🔍] Scanate: {vin_stats['scanned']} | VIN-uri detectate: {vin_stats['vins_extracted']} ({vin_stats['valid_vins']} valide ISO, {vin_stats['suspicious_vins']} suspiciuni an)")
+        else:
+            print("    [OK] Verificare VIN completată: nicio serie nouă de șasiu de decodat în acest lot.")
+    except Exception as e:
+        print(f"[!] Eroare la verificarea seriilor VIN: {e}")
+
     # 4.5 Generare Raport Zilnic de Piata (Market Intelligence)
     try:
         print("\n[*] Compilare Raport Zilnic Automat de Piata...")
@@ -611,11 +628,11 @@ def run_pipeline(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Daily Car Market Pipeline Orchestrator (12 Platforme)")
+    parser = argparse.ArgumentParser(description="Daily Car Market Pipeline Orchestrator (14 Platforme)")
     parser.add_argument("--full", action="store_true", help="Ruleaza modul nocturn complet (fara early stopping, sincronizare DB, retrain ML)")
     parser.add_argument("--pages", type=int, default=5, help="Numar pagini scanate per scraper (implicit 5 pentru zi, 25 pentru full)")
     parser.add_argument("--sequential", action="store_true", help="Ruleaza scraperele secvential (default este in paralel)")
-    parser.add_argument("--all-scrapers", action="store_true", default=True, help="Include toate cele 11 scrapere disponibile (default: True)")
+    parser.add_argument("--all-scrapers", action="store_true", default=True, help="Include toate cele 14 scrapere disponibile (default: True)")
     parser.add_argument("--single-scraper", action="store_true", help="Ruleaza doar AutoUncle")
     parser.add_argument("--multi-agent", action="store_true", help="Ruleaza motorul de crawling multi-agent (2-3 pagini per agent, protectie Cloudflare)")
     parser.add_argument("--autovit", action="store_true", help="Include scraperul Autovit")
@@ -630,6 +647,7 @@ def main():
     parser.add_argument("--tiriac", action="store_true", help="Include scraperul Tiriac Auto Rulate")
     parser.add_argument("--autoscout24", action="store_true", help="Include scraperul AutoScout24 (Europa)")
     parser.add_argument("--willhaben", action="store_true", help="Include scraperul Willhaben (Austria)")
+    parser.add_argument("--otomoto", action="store_true", help="Include scraperul Otomoto (Polonia)")
     parser.add_argument("--no-backup", action="store_true", help="Dezactiveaza backup-ul automat al bazei de date")
     parser.add_argument("--skip-scraping", action="store_true", help="Sari peste etapa de scraping")
     parser.add_argument("--skip-ml", action="store_true", help="Sari peste etapa de antrenare ML")
@@ -644,7 +662,8 @@ def main():
     run_all = not (
         args.single_scraper or args.autovit or args.olx or args.cautimasina or
         args.bestauto or args.plusauto or args.carzz or args.mobile_de or
-        args.lajumate or args.publi24 or args.tiriac or args.autoscout24
+        args.lajumate or args.publi24 or args.tiriac or args.autoscout24 or
+        args.willhaben or args.otomoto
     )
 
     run_pipeline(
@@ -663,6 +682,8 @@ def main():
         run_publi24=args.publi24,
         run_tiriac=args.tiriac,
         run_autoscout24=args.autoscout24,
+        run_willhaben=args.willhaben,
+        run_otomoto=args.otomoto,
         use_multi_agent=args.multi_agent,
         backup_db=not args.no_backup,
         skip_scraping=args.skip_scraping,
