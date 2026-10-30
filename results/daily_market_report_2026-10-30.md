@@ -1,37 +1,31 @@
 # 📊 RAPORT ZILNIC DE PIAȚĂ AUTO (Market Intelligence)
-> **Data Generării:** 30 October 2026, 17:49  
-> **Univers Analizat:** 100,204 anunțuri (8,161 active)  
-> **Platforme Monitorizate:** autouncle, autovit, cautimasina, bestauto, plusauto, olx, carzz, willhaben, autoscout24
+> **Data Generării:** 30 October 2026, 20:30  
+> **Univers Analizat:** 101,005 anunțuri (8,976 active)  
+> **Platforme Monitorizate:** autouncle, autovit, cautimasina, bestauto, plusauto, olx, carzz, otomoto, willhaben, autoscout24
 
 ---
 
 ## 1. 📈 Tablou de Bord Global (Sinteză)
-- **Anunțuri Active în Piață:** `8,161`
-- **Total Înregistrări Istorice de Preț:** `100,477`
-- **Mașini cu Ieftiniri Înregistrate:** `259`
-- **Ieftiniri Majore (Ultimele 3 zile >= 200€):** `19`
+- **Anunțuri Active în Piață:** `8,976`
+- **Total Înregistrări Istorice de Preț:** `101,305`
+- **Mașini cu Ieftiniri Înregistrate:** `284`
+- **Ieftiniri Majore (Ultimele 3 zile >= 200€):** `41`
 
 ---
 
 ## 2. 💎 Top 5 Oportunități de Arbitraj ale Zilei (Deal Score 0-100)
-| Mașină | Preț Vânzător | Valoare ML | Deal Score | Profit Net Estimat | ROI % |
-|---|---|---|---|---|---|
-| [Audi A3 SB 1,2 TFSI Ambiente](https://www.willhaben.at/iad/gebrauchtwagen/d/auto/audi-a3-sb-1-2-tfsi-ambiente-1467180760/) | 3,799 € | 11,061 € | **79/100** | +3,304 € | 42.6% |
-| [VW T-Roc 1,0 TSI Design /AHK/ACC/Lane Assist/](https://www.willhaben.at/iad/gebrauchtwagen/d/auto/vw-t-roc-1-0-tsi-design-ahk-acc-lane-assist-shz-e-1329338158/) | 12,290 € | 16,543 € | **78/100** | +1,746 € | 11.8% |
-| [VW Golf VII Highline 1,4 TSI 4-türig](https://www.willhaben.at/iad/gebrauchtwagen/d/auto/vw-golf-vii-highline-1-4-tsi-4-tuerig-1729571724/) | 8,490 € | 10,936 € | **56/100** | +-566 € | -4.9% |
-| [Porsche Cayenne 3L Motor Diesel](https://www.willhaben.at/iad/gebrauchtwagen/d/auto/porsche-cayenne-3l-motor-diesel-1512868917/) | 12,900 € | 5,733 € | **50/100** | +-14,567 € | -71.8% |
-| [Maserati Ghibli Facelift Benzin](https://www.willhaben.at/iad/gebrauchtwagen/d/auto/maserati-ghibli-facelift-benzin-1351546434/) | 29,000 € | 13,788 € | **50/100** | +-20,904 € | -60.3% |
+*Nu s-au înregistrat oportunități noi de arbitraj peste pragul critic în acest interval.*
 
 ---
 
 ## 3. 🔻 Top Scăderi Majore de Preț (Recente)
 | Anunț | Platformă | Preț Vechi | Preț Nou | Ieftinire | Reducere % |
 |---|---|---|---|---|---|
+| [Ford Focus ST line](https://www.bestauto.ro/anunturi/auto-moto/masini-second-hand/ford/focus/anunt/ford-focus-st-line/598i2gd4f68275g222e4440h87h7522d.html) | BESTAUTO | 13,850 € | 10,700 € | **-3,150 €** | -22.7% |
+| [Mercedes-Benz C 220d AMG Line | Istori](https://www.olx.ro/d/oferta/mercedes-benz-c-220d-amg-line-istoric-complet-burmester-trapa-IDkjArZ.html?search_reason=search%7Cpromoted) | OLX | 19,500 € | 16,500 € | **-3,000 €** | -15.4% |
 | [Second-hand (2015) Audi A3 Sportback 1](https://www.autouncle.ro/ro/d/6003162-second-hand-2015-audi-a3-sportback-110-cp) | AUTOUNCLE | 12,800 € | 10,000 € | **-2,800 €** | -21.9% |
-| [Second-hand (2023) Cupra Formentor 150](https://www.autouncle.ro/ro/d/5895370-second-hand-2023-cupra-formentor-150-cp) | AUTOUNCLE | 19,999 € | 17,999 € | **-2,000 €** | -10.0% |
-| [Mercedes GLA](https://www.bestauto.ro/anunturi/auto-moto/masini-second-hand/mercedes-benz/220/anunt/mercedes-gla/f873d77g741d7d86206e06d048h1d22d.html) | BESTAUTO | 18,500 € | 16,500 € | **-2,000 €** | -10.8% |
-| [Audi A6](https://www.autovit.ro/autoturisme/anunt/audi-a6-ID7HKn1L.html) | AUTOVIT | 18,300 € | 16,500 € | **-1,800 €** | -9.8% |
-| [Second-hand (2020) Peugeot 3008 GT-lin](https://www.autouncle.ro/ro/d/5710227-second-hand-2020-peugeot-3008-gt-line-130-cp) | AUTOUNCLE | 14,490 € | 12,699 € | **-1,791 €** | -12.4% |
+| [Audi A7 Sportback 50 TDI quattro Tiptr](https://www.autovit.ro/autoturisme/anunt/audi-a7-ver-50-tdi-quattro-tiptronic-ID7HQU1b.html) | AUTOVIT | 31,500 € | 28,950 € | **-2,550 €** | -8.1% |
+| [Mitsubishi Eclipse-Cross 1.5-litre 16-](https://www.autovit.ro/autoturisme/anunt/mitsubishi-eclipse-cross-ver-1-5-litre-16-valve-dohc-mivec-4x4-instyleplus-aut-ID7HHKKs.html) | AUTOVIT | 19,990 € | 17,490 € | **-2,500 €** | -12.5% |
 
 ---
 
@@ -40,9 +34,9 @@
 |---|---|---|---|---|---|
 | Škoda | Superb | 2022-2026 | **1 zile** | Ultra-Lichid | 99/100 |
 | Škoda | Superb | 2018-2021 | **1 zile** | Ultra-Lichid | 99/100 |
+| Škoda | Superb | 2014-2017 | **1 zile** | Ultra-Lichid | 99/100 |
 | Škoda | Superb | 2010-2013 | **1 zile** | Ultra-Lichid | 99/100 |
 | Škoda | Scala | 2022-2026 | **1 zile** | Ultra-Lichid | 99/100 |
-| Škoda | Scala | 2018-2021 | **1 zile** | Ultra-Lichid | 99/100 |
 
 ---
 
@@ -60,9 +54,11 @@
 ## 6. 🚢 Top Oportunități de Import Vest -> România (Germania, Austria, Olanda)
 | Țară | Model | Preț Extern | Piață România | Cost Import | Profit NET | ROI % | Link |
 |---|---|---|---|---|---|---|---|
-| **AT** | Mercedes-Benz GLE-Klasse *AIRM | 58,880 € | 67,374 € | 845 € | **+7,649 €** | **+12.8%** | [Vezi Oferta](https://www.willhaben.at/iad/gebrauchtwagen/d/auto/mercedes-benz-gle-klasse-airmatic-ahk-kamera-2072062996/) |
-| **AT** | Audi A3 SB 1,2 TFSI Ambiente | 3,799 € | 11,125 € | 845 € | **+6,481 €** | **+139.6%** | [Vezi Oferta](https://www.willhaben.at/iad/gebrauchtwagen/d/auto/audi-a3-sb-1-2-tfsi-ambiente-1467180760/) |
-| **AT** | VW T-Roc 1,0 TSI Design /AHK/A | 12,290 € | 16,507 € | 845 € | **+3,372 €** | **+25.7%** | [Vezi Oferta](https://www.willhaben.at/iad/gebrauchtwagen/d/auto/vw-t-roc-1-0-tsi-design-ahk-acc-lane-assist-shz-e-1329338158/) |
+| **PL** | BMW X3 20d xDrive | 56,901 € | 80,970 € | 1,015 € | **+23,054 €** | **+39.8%** | [Vezi Oferta](https://www.otomoto.pl/osobowe/oferta/bmw-x3-ID6IgxBh.html) |
+| **PL** | Audi Q3 | 2,274 € | 25,990 € | 1,015 € | **+22,701 €** | **+690.3%** | [Vezi Oferta](https://www.otomoto.pl/osobowe/oferta/audi-q3-ID6IiAFz.html) |
+| **PL** | BMW X3 20 xDrive | 58,779 € | 80,970 € | 1,015 € | **+21,176 €** | **+35.4%** | [Vezi Oferta](https://www.otomoto.pl/osobowe/oferta/bmw-x3-ID6I0SV0.html) |
+| **PL** | BMW iX3 40 | 69,187 € | 89,800 € | 1,015 € | **+19,598 €** | **+27.9%** | [Vezi Oferta](https://www.otomoto.pl/osobowe/oferta/bmw-ix3-ID6Ih3WM.html) |
+| **PL** | Porsche Cayenne | 57,978 € | 76,800 € | 1,015 € | **+17,807 €** | **+30.2%** | [Vezi Oferta](https://www.otomoto.pl/osobowe/oferta/porsche-cayenne-ID6Ibr6h.html) |
 
 ---
 
